@@ -2,6 +2,7 @@ import express from 'express';
 import Post from '../models/Post.js';
 import User from '../models/User.js';
 import { protect } from '../middleware/auth.js';
+import { buildUserLookupQuery } from '../utils/userLookup.js';
 
 const router = express.Router();
 
@@ -9,14 +10,25 @@ router.get('/', async (req, res, next) => {
   try {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 8;
-    const posts = await Post.find()
+    const author = String(req.query.author || '').trim();
+    const filter = {};
+
+    if (author) {
+      const authorUser = await User.findOne(buildUserLookupQuery(author)).select('_id');
+      if (!authorUser) {
+        return res.json({ posts: [], total: 0, page, pages: 0 });
+      }
+      filter.author = authorUser._id;
+    }
+
+    const posts = await Post.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .populate('author', 'username fullname avatar bio')
       .populate('comments.author', 'username fullname avatar');
 
-    const total = await Post.countDocuments();
+    const total = await Post.countDocuments(filter);
     res.json({ posts, total, page, pages: Math.ceil(total / limit) });
   } catch (error) {
     next(error);
