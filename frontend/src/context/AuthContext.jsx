@@ -45,8 +45,19 @@ export function AuthProvider({ children }) {
     return res.data.user;
   };
 
+  const toggleFollow = async (userId) => {
+    const res = await api.post(`/follow/${userId}`);
+    if (res.data.success) {
+      setUser((prevUser) => ({
+        ...prevUser,
+        following: res.data.followingList,
+      }));
+    }
+    return res.data;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, updateProfile }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, updateProfile, toggleFollow }}>
       {children}
     </AuthContext.Provider>
   );

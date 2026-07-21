@@ -51,6 +51,7 @@ router.post('/:id', protect, async (req, res, next) => {
       following: shouldFollow,
       followersCount: updatedTargetUser.followers.length,
       followingCount: updatedCurrentUser.following.length,
+      followingList: updatedCurrentUser.following,
     });
   } catch (error) {
     next(error);

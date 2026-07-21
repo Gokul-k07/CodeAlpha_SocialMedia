@@ -14,18 +14,18 @@ const matchesId = (entity, id) => String(getEntityId(entity)) === String(id);
 
 export default function ProfilePage() {
   const { username } = useParams();
-  const { user: authUser, updateProfile } = useAuth();
+  const { user: authUser, updateProfile, toggleFollow: authToggleFollow } = useAuth();
   const authUserId = authUser?._id;
   const authUsername = authUser?.username;
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);
   const [postCount, setPostCount] = useState(0);
+  const [followersCount, setFollowersCount] = useState(0);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [postsLoading, setPostsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [following, setFollowing] = useState(false);
-  const [followBusy, setFollowBusy] = useState(false);
+  const [followBusyIds, setFollowBusyIds] = useState({});
   const [postBusyIds, setPostBusyIds] = useState({});
   const [activeList, setActiveList] = useState(null);
   const [form, setForm] = useState({ bio: '', website: '' });
@@ -55,7 +55,7 @@ export default function ProfilePage() {
         const profile = res.data.user;
         setUser(profile);
         setPostCount(profile.postCount || 0);
-        setFollowing(Boolean(profile.followers?.some((follower) => matchesId(follower, authUserId))));
+        setFollowersCount(profile.followersCount ?? profile.followers?.length ?? 0);
         setForm({ bio: profile.bio || '', website: profile.website || '' });
         await loadProfilePosts(profile._id, true);
       } catch {
@@ -82,28 +82,20 @@ export default function ProfilePage() {
     }
   };
 
-  const toggleFollow = async () => {
-    if (!user || followBusy) return;
-    const action = following ? 'unfollow' : 'follow';
-    setFollowBusy(true);
+  const handleFollowToggle = async (userId, userFullname) => {
+    if (followBusyIds[userId]) return;
+    setFollowBusyIds((prev) => ({ ...prev, [userId]: true }));
     try {
-      const res = await api.post(`/follow/${user._id}`, { action });
-      const nextFollowing = res.data.following;
-      setFollowing(nextFollowing);
-      setUser((prev) => prev ? {
-        ...prev,
-        followers: nextFollowing
-          ? (prev.followers || []).some((follower) => matchesId(follower, authUserId))
-            ? prev.followers
-            : [...(prev.followers || []), { _id: authUserId, username: authUsername, fullname: authUser?.fullname, avatar: authUser?.avatar }]
-          : (prev.followers || []).filter((follower) => !matchesId(follower, authUserId)),
-        followersCount: res.data.followersCount,
-      } : prev);
-      addToast(nextFollowing ? `Following @${user.username}` : `Unfollowed @${user.username}`, 'success');
+      const res = await authToggleFollow(userId);
+      const isNowFollowing = authUser?.following?.some((followingId) => String(followingId) === String(userId));
+      if (matchesId(user, userId)) {
+        setFollowersCount((current) => current + (isNowFollowing ? -1 : 1));
+      }
+      addToast(isNowFollowing ? `Unfollowed @${userFullname}` : `Following @${userFullname}`, 'success');
     } catch {
       addToast('Unable to update follow status', 'error');
     } finally {
-      setFollowBusy(false);
+      setFollowBusyIds((prev) => ({ ...prev, [userId]: false }));
     }
   };
 
@@ -152,9 +144,9 @@ export default function ProfilePage() {
   if (loading) return <ProfileSkeleton />;
   if (!user) return <div className="page-card">Unable to load profile.</div>;
 
-  const followerCount = user.followersCount ?? user.followers?.length ?? 0;
   const followingCount = user.followingCount ?? user.following?.length ?? 0;
   const isOwnProfile = matchesId(user, authUserId);
+  const isFollowing = authUser?.following?.some((followingId) => String(followingId) === String(user._id));
   const activeUsers = activeList === 'followers' ? user.followers || [] : user.following || [];
   const activeTitle = activeList === 'followers' ? 'Followers' : 'Following';
 
@@ -169,8 +161,13 @@ export default function ProfilePage() {
             <p>@{user.username}</p>
           </div>
           {!isOwnProfile ? (
-            <button className="primary-btn" onClick={toggleFollow} disabled={followBusy} aria-busy={followBusy}>
-              {followBusy ? <><LoadingSpinner size={14} /> {following ? 'Unfollowing...' : 'Following...'}</> : following ? 'Following' : 'Follow'}
+            <button
+              className={isFollowing ? 'secondary-btn' : 'primary-btn'}
+              onClick={() => handleFollowToggle(user._id, user.username)}
+              disabled={!!followBusyIds[user._id]}
+              aria-busy={!!followBusyIds[user._id]}
+            >
+              {!!followBusyIds[user._id] ? <><LoadingSpinner size={14} /> Loading...</> : isFollowing ? 'Unfollow' : 'Follow'}
             </button>
           ) : (
             <button className="primary-btn" onClick={() => setEditing(!editing)}>{editing ? 'Cancel' : 'Edit profile'}</button>
@@ -193,7 +190,7 @@ export default function ProfilePage() {
         <div className="stats-row">
           <div><strong>{postCount}</strong><span>Posts</span></div>
           <button type="button" className="stat-button" onClick={() => setActiveList('followers')}>
-            <strong>{followerCount}</strong><span>Followers</span>
+            <strong>{followersCount}</strong><span>Followers</span>
           </button>
           <button type="button" className="stat-button" onClick={() => setActiveList('following')}>
             <strong>{followingCount}</strong><span>Following</span>
@@ -214,7 +211,16 @@ export default function ProfilePage() {
                   <p><Link to={`/profile/${post.author?.username}`}>@{post.author?.username}</Link></p>
                 </div>
               </div>
-              <span className="pill">New</span>
+              {!isOwnProfile && authUser?._id !== post.author?._id && (
+                <button
+                  onClick={() => handleFollowToggle(post.author._id, post.author.username)}
+                  className={authUser?.following?.some((followingId) => String(followingId) === String(post.author._id)) ? 'secondary-btn' : 'accent-btn'}
+                  disabled={!!followBusyIds[post.author._id]}
+                  aria-busy={!!followBusyIds[post.author._id]}
+                >
+                  {authUser?.following?.some((followingId) => String(followingId) === String(post.author._id)) ? 'Unfollow' : 'Follow'}
+                </button>
+              )}
             </div>
             <img src={post.image || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1200&q=80'} alt="post" className="post-image" />
             <div className="post-actions">
@@ -254,15 +260,25 @@ export default function ProfilePage() {
             </div>
             <div className="modal-list">
               {activeUsers.length ? activeUsers.map((person) => (
-                <Link key={getEntityId(person)} to={`/profile/${person.username}`} className="user-row spaced" onClick={() => setActiveList(null)}>
-                  <div className="user-row">
+                <div key={getEntityId(person)} className="user-row spaced">
+                  <Link to={`/profile/${person.username}`} className="user-row" onClick={() => setActiveList(null)}>
                     <img src={person.avatar} alt="avatar" className="avatar" />
                     <div>
                       <h4>{person.fullname}</h4>
                       <p>@{person.username}</p>
                     </div>
-                  </div>
-                </Link>
+                  </Link>
+                  {authUser?._id !== person._id && (
+                     <button
+                      onClick={() => handleFollowToggle(person._id, person.username)}
+                      className={authUser?.following?.some((followingId) => String(followingId) === String(person._id)) ? 'secondary-btn' : 'accent-btn'}
+                      disabled={!!followBusyIds[person._id]}
+                      aria-busy={!!followBusyIds[person._id]}
+                    >
+                      {authUser?.following?.some((followingId) => String(followingId) === String(person._id)) ? 'Unfollow' : 'Follow'}
+                    </button>
+                  )}
+                </div>
               )) : <div className="empty-state">No users to show.</div>}
             </div>
           </div>

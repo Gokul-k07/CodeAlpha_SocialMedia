@@ -14,7 +14,7 @@ export default function HomePage() {
   const [suggested, setSuggested] = useState([]);
   const [busyIds, setBusyIds] = useState({});
   const [publishing, setPublishing] = useState(false);
-  const { user } = useAuth();
+  const { user, toggleFollow } = useAuth();
   const { addToast } = useToast();
 
   const loadPosts = async () => {
@@ -100,6 +100,21 @@ export default function HomePage() {
     }
   };
 
+  const handleFollowToggle = async (authorId) => {
+    if (busyIds[authorId]) return;
+    setBusyIds((prev) => ({ ...prev, [authorId]: 'follow' }));
+    try {
+      const res = await toggleFollow(authorId);
+      addToast(res.following ? 'User followed' : 'User unfollowed', 'success');
+    } catch {
+      addToast('Could not update follow status.', 'error');
+    } finally {
+      setBusyIds((prev) => ({ ...prev, [authorId]: null }));
+    }
+  };
+
+  const isFollowing = (authorId) => user?.following?.includes(authorId);
+
   return (
     <div className="home-grid">
       <section className="feed-column">
@@ -128,7 +143,16 @@ export default function HomePage() {
                     <p><Link to={`/profile/${post.author?.username}`}>@{post.author?.username}</Link></p>
                   </div>
                 </div>
-                <span className="pill">New</span>
+                {user?._id !== post.author?._id && (
+                  <button
+                    onClick={() => handleFollowToggle(post.author._id)}
+                    className={isFollowing(post.author._id) ? 'secondary-btn' : 'accent-btn'}
+                    disabled={busyIds[post.author._id] === 'follow'}
+                    aria-busy={busyIds[post.author._id] === 'follow'}
+                  >
+                    {isFollowing(post.author._id) ? 'Unfollow' : 'Follow'}
+                  </button>
+                )}
               </div>
               <img src={post.image || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1200&q=80'} alt="post" className="post-image" />
               <div className="post-actions">
