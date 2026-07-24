@@ -36,9 +36,11 @@ function NotificationItem({ notification, onClick }) {
       case 'follow':
         return 'started following you.';
       case 'like':
-        return `liked your post: "${notification.post.caption.substring(0, 20)}..."`;
+        return `liked your post: "${(notification.post?.caption || '').substring(0, 20)}..."`;
       case 'comment':
-        return `commented on your post: "${notification.post.caption.substring(0, 20)}..."`;
+        return `commented on your post: "${(notification.post?.caption || '').substring(0, 20)}..."`;
+      case 'mention':
+        return `mentioned you in a post: "${(notification.post?.caption || '').substring(0, 20)}..."`;
       default:
         return 'New notification';
     }

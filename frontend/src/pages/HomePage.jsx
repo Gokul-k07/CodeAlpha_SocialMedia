@@ -1,12 +1,13 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { FiPlus, FiTrendingUp, FiRefreshCw } from 'react-icons/fi';
+import { FiPlus, FiTrendingUp, FiRefreshCw, FiPaperclip } from 'react-icons/fi';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
 import LoadingSpinner from '../components/LoadingSpinner';
 import FeedSkeleton from '../components/skeletons/FeedSkeleton';
 import PostCard from '../components/PostCard';
+import PostComposerModal from '../components/PostComposerModal';
 
 export default function HomePage() {
   const [posts, setPosts] = useState([]);
@@ -20,6 +21,7 @@ export default function HomePage() {
   const [suggested, setSuggested] = useState([]);
   const [busyIds, setBusyIds] = useState({});
   const [publishing, setPublishing] = useState(false);
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
 
   const { user, toggleFollow } = useAuth();
   const { addToast } = useToast();
@@ -38,7 +40,7 @@ export default function HomePage() {
     if (seconds < 60) return `${seconds}s ago`;
     const minutes = Math.round(seconds / 60);
     if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.round(minutes / 60);
+    const hours = Math.round(seconds / 60);
     if (hours < 24) return `${hours}h ago`;
     const days = Math.round(hours / 24);
     return `${days}d ago`;
@@ -128,16 +130,15 @@ export default function HomePage() {
     setPublishing(true);
     try {
       const res = await api.post('/posts', {
-        caption,
-        image: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1200&q=80',
+        caption: caption.trim(),
       });
       setCaption('');
       addToast('Post published successfully.', 'success');
       if (res.data.post) {
         setPosts((prev) => [res.data.post, ...prev]);
       }
-    } catch {
-      addToast('Unable to publish post.', 'error');
+    } catch (err) {
+      addToast(err.response?.data?.message || 'Unable to publish post.', 'error');
     } finally {
       setPublishing(false);
     }
@@ -208,6 +209,14 @@ export default function HomePage() {
   const isFollowing = (authorId) => user?.following?.includes(authorId);
   const toggleComments = (postId) => setExpandedCommentPostId((prev) => (prev === postId ? null : postId));
 
+  const handlePostUpdated = (updatedPost) => {
+    setPosts((prev) => prev.map((p) => (p._id === updatedPost._id ? updatedPost : p)));
+  };
+
+  const handlePostDeleted = (deletedPostId) => {
+    setPosts((prev) => prev.filter((p) => p._id !== deletedPostId));
+  };
+
   return (
     <div className="home-grid">
       <section className="feed-column">
@@ -220,7 +229,15 @@ export default function HomePage() {
                 onChange={(e) => setCaption(e.target.value)}
                 placeholder="What are you sharing today?"
               />
-              <button type="submit" className="primary-btn" disabled={publishing} aria-busy={publishing}>
+              <button
+                type="button"
+                className="ghost-btn attach-btn"
+                onClick={() => setIsComposerOpen(true)}
+                title="Add rich media, documents & tags"
+              >
+                <FiPaperclip size={18} />
+              </button>
+              <button type="submit" className="primary-btn" disabled={publishing || !caption.trim()} aria-busy={publishing}>
                 {publishing ? (
                   <>
                     <LoadingSpinner size={14} className="white" /> Publishing...
@@ -248,6 +265,8 @@ export default function HomePage() {
                 onToggleBookmark={toggleBookmark}
                 onToggleComments={toggleComments}
                 onAddComment={addComment}
+                onPostUpdated={handlePostUpdated}
+                onPostDeleted={handlePostDeleted}
                 expandedPostId={expandedCommentPostId}
                 commentDrafts={commentDrafts}
                 setCommentDrafts={setCommentDrafts}
@@ -297,6 +316,7 @@ export default function HomePage() {
             <li>#CreatorEconomy</li>
           </ul>
         </div>
+
         <div className="card">
           <h3 style={{ margin: '0 0 12px 0' }}>Suggested creators</h3>
           {suggested.map((item) => (
@@ -309,10 +329,25 @@ export default function HomePage() {
             </Link>
           ))}
         </div>
-        <button type="button" className="fab" aria-label="Create Post">
-          <FiPlus />
+
+        {/* Floating + FAB Button */}
+        <button
+          type="button"
+          className="fab"
+          aria-label="Create Post"
+          onClick={() => setIsComposerOpen(true)}
+          title="Create a new post"
+        >
+          <FiPlus size={24} />
         </button>
       </aside>
+
+      {/* Rich Post Composer Modal */}
+      <PostComposerModal
+        isOpen={isComposerOpen}
+        onClose={() => setIsComposerOpen(false)}
+        onPostCreated={(newPost) => setPosts((prev) => [newPost, ...prev])}
+      />
     </div>
   );
 }

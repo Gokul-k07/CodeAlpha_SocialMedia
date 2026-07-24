@@ -41,6 +41,8 @@ function NotificationCard({ notification }) {
         return `liked your post: "${(notification.post?.caption || '').substring(0, 30)}..."`;
       case 'comment':
         return `commented on your post: "${(notification.post?.caption || '').substring(0, 30)}..."`;
+      case 'mention':
+        return `mentioned you in a post: "${(notification.post?.caption || '').substring(0, 30)}..."`;
       default:
         return 'interacted with your profile.';
     }

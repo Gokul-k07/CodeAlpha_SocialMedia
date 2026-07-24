@@ -179,6 +179,15 @@ export default function ProfilePage() {
   const activeUsers = activeList === 'followers' ? user.followers || [] : user.following || [];
   const activeTitle = activeList === 'followers' ? 'Followers' : 'Following';
 
+  const handlePostUpdated = (updatedPost) => {
+    setPosts((prev) => prev.map((p) => (p._id === updatedPost._id ? updatedPost : p)));
+  };
+
+  const handlePostDeleted = (deletedPostId) => {
+    setPosts((prev) => prev.filter((p) => p._id !== deletedPostId));
+    setPostCount((prev) => Math.max(0, prev - 1));
+  };
+
   return (
     <div className="profile-feed-column">
       <div className="page-card profile-card">
@@ -246,6 +255,8 @@ export default function ProfilePage() {
             onToggleBookmark={toggleBookmark}
             onToggleComments={toggleComments}
             onAddComment={addComment}
+            onPostUpdated={handlePostUpdated}
+            onPostDeleted={handlePostDeleted}
             expandedPostId={expandedCommentPostId}
             commentDrafts={commentDrafts}
             setCommentDrafts={setCommentDrafts}
