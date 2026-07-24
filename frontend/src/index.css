@@ -2054,6 +2054,59 @@ button:disabled { cursor: wait; opacity: 0.75; }
   cursor: pointer;
 }
 
+/* Profile Avatar & Cover Image Upload Buttons */
+.cover-upload-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  z-index: 5;
+}
+.cover-upload-btn:hover {
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.avatar-upload-btn {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  border: 2px solid var(--card-bg);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  z-index: 5;
+}
+.avatar-upload-btn:hover {
+  transform: scale(1.1);
+}
+
+.logout-btn {
+  color: var(--danger);
+  padding: 10px 12px;
+  border-radius: 999px;
+}
+.logout-btn:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
 @media (max-width: 920px) { .app-shell { grid-template-columns: 1fr; } .sidebar { border-right: none; border-bottom: 1px solid rgba(15,23,42,0.08); } .home-grid { grid-template-columns: 1fr; } .auth-card { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .main-panel { padding: 14px; } .composer-form { flex-direction: column; } .profile-header { flex-direction: column; align-items: flex-start; } .theme-options-grid { grid-template-columns: 1fr; } }
 

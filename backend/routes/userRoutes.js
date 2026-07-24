@@ -9,7 +9,10 @@ const router = express.Router();
 
 router.get('/me', protect, async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id).select('-password').populate('followers', 'username fullname avatar').populate('following', 'username fullname avatar');
+    const user = await User.findById(req.user.id)
+      .select('-password')
+      .populate('followers', 'username fullname avatar')
+      .populate('following', 'username fullname avatar');
     const postCount = await Post.countDocuments({ author: req.user.id });
     res.json({ user: attachPostCount(user.toObject(), postCount) });
   } catch (error) {
@@ -36,7 +39,16 @@ router.get('/:identifier', async (req, res, next) => {
 router.put('/profile', protect, async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
-    const allowed = ['fullname', 'bio', 'website', 'avatar', 'cover'];
+    const allowed = [
+      'fullname',
+      'bio',
+      'website',
+      'avatar',
+      'cover',
+      'whoCanMessageMe',
+      'whoCanFollowMe',
+      'emailNotifications',
+    ];
     allowed.forEach((field) => {
       if (req.body[field] !== undefined) user[field] = req.body[field];
     });

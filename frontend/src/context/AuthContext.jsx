@@ -24,6 +24,14 @@ export function AuthProvider({ children }) {
 
   const login = async (credentials) => {
     const res = await api.post('/auth/login', credentials);
+    if (!res.data.requireTwoFactor) {
+      setUser(res.data.user);
+    }
+    return res.data;
+  };
+
+  const verify2FaLogin = async (payload) => {
+    const res = await api.post('/auth/verify-2fa-login', payload);
     setUser(res.data.user);
     return res.data;
   };
@@ -35,8 +43,14 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    await api.post('/auth/logout');
-    setUser(null);
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Quiet fail
+    } finally {
+      setUser(null);
+      localStorage.removeItem('novasocial-token');
+    }
   };
 
   const updateProfile = async (payload) => {
@@ -57,7 +71,9 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, updateProfile, toggleFollow }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, verify2FaLogin, register, logout, updateProfile, toggleFollow }}
+    >
       {children}
     </AuthContext.Provider>
   );

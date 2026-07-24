@@ -19,6 +19,8 @@ import { MessagesProvider } from './context/MessageContext'
 import { ThemeProvider } from './context/ThemeContext'
 import './App.css'
 
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <div className="loading">Loading NovaSocial...</div>
@@ -32,6 +34,8 @@ function AppRoutes() {
     <AnimatePresence mode="wait">
       <Routes>
         <Route path="/auth" element={user ? <Navigate to="/" replace /> : <AuthPage />} />
+        <Route path="/login" element={user ? <Navigate to="/" replace /> : <AuthPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route path="/" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><HomePage /></motion.div>} />
           <Route path="/explore" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><ExplorePage /></motion.div>} />

@@ -14,6 +14,14 @@ const userSchema = new mongoose.Schema(
     following: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
     bookmarks: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
+    isTwoFactorEnabled: { type: Boolean, default: false },
+    twoFactorOtp: { type: String, default: null },
+    twoFactorOtpExpires: { type: Date, default: null },
+    resetPasswordOtp: { type: String, default: null },
+    resetPasswordOtpExpires: { type: Date, default: null },
+    whoCanMessageMe: { type: String, enum: ['anyone', 'followers'], default: 'anyone' },
+    whoCanFollowMe: { type: String, enum: ['anyone', 'approval'], default: 'anyone' },
+    emailNotifications: { type: Boolean, default: true },
   },
   { timestamps: true }
 );

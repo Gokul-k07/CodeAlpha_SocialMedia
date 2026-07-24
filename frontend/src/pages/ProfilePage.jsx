@@ -1,6 +1,15 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { FiX, FiMessageSquare } from 'react-icons/fi';
+import { useEffect, useState, useRef } from 'react';
+import { Link, useParams, useNavigate } from 'react-router-dom';
+import {
+  FiX,
+  FiMessageSquare,
+  FiCamera,
+  FiShare2,
+  FiCopy,
+  FiLogOut,
+  FiSend,
+  FiCheckCircle,
+} from 'react-icons/fi';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
@@ -10,14 +19,14 @@ import ProfileSkeleton from '../components/skeletons/ProfileSkeleton';
 import PostCard from '../components/PostCard';
 
 const getEntityId = (entity) => entity?._id || entity;
-
 const matchesId = (entity, id) => String(getEntityId(entity)) === String(id);
 
 export default function ProfilePage() {
   const { username } = useParams();
-  const { user: authUser, updateProfile, toggleFollow: authToggleFollow } = useAuth();
+  const { user: authUser, updateProfile, toggleFollow: authToggleFollow, logout } = useAuth();
   const authUserId = authUser?._id;
   const authUsername = authUser?.username;
+
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);
   const [postCount, setPostCount] = useState(0);
@@ -26,13 +35,33 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [postsLoading, setPostsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const [savingAvatar, setSavingAvatar] = useState(false);
+  const [savingCover, setSavingCover] = useState(false);
+  const [showShareMenu, setShowShareMenu] = useState(false);
+  const [showShareMsgModal, setShowShareMsgModal] = useState(false);
+  const [conversations, setConversations] = useState([]);
+  const [sharingMsg, setSharingMsg] = useState(false);
+
   const [followBusyIds, setFollowBusyIds] = useState({});
   const [postBusyIds, setPostBusyIds] = useState({});
   const [activeList, setActiveList] = useState(null);
   const [form, setForm] = useState({ bio: '', website: '' });
   const [expandedCommentPostId, setExpandedCommentPostId] = useState(null);
   const [commentDrafts, setCommentDrafts] = useState({});
+
+  const avatarInputRef = useRef(null);
+  const coverInputRef = useRef(null);
+
   const { addToast } = useToast();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!showShareMenu) return;
+    const handleClickOutside = () => setShowShareMenu(false);
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
+  }, [showShareMenu]);
 
   const toggleComments = (postId) => {
     setExpandedCommentPostId((prev) => (prev === postId ? null : postId));
@@ -46,7 +75,7 @@ export default function ProfilePage() {
     if (seconds < 60) return `${seconds}s ago`;
     const minutes = Math.round(seconds / 60);
     if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.round(minutes / 60);
+    const hours = Math.round(seconds / 60);
     if (hours < 24) return `${hours}h ago`;
     const days = Math.round(hours / 24);
     return `${days}d ago`;
@@ -93,7 +122,7 @@ export default function ProfilePage() {
     setSaving(true);
     try {
       const updated = await updateProfile(form);
-      setUser((prev) => prev ? { ...prev, ...updated } : prev);
+      setUser((prev) => (prev ? { ...prev, ...updated } : prev));
       setEditing(false);
       addToast('Profile updated.', 'success');
     } catch {
@@ -101,6 +130,74 @@ export default function ProfilePage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Avatar Image Upload Handler
+  const handleAvatarUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      addToast('Please select a valid image file.', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      addToast('Profile image must be smaller than 5MB.', 'error');
+      return;
+    }
+
+    setSavingAvatar(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const dataUrl = event.target?.result;
+      if (dataUrl) {
+        try {
+          const updated = await updateProfile({ avatar: dataUrl });
+          setUser((prev) => (prev ? { ...prev, avatar: updated.avatar } : prev));
+          addToast('Profile picture updated successfully!', 'success');
+        } catch {
+          addToast('Failed to update profile picture.', 'error');
+        } finally {
+          setSavingAvatar(false);
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+    if (avatarInputRef.current) avatarInputRef.current.value = '';
+  };
+
+  // Cover Image Upload Handler
+  const handleCoverUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      addToast('Please select a valid image file.', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      addToast('Cover background image must be smaller than 5MB.', 'error');
+      return;
+    }
+
+    setSavingCover(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const dataUrl = event.target?.result;
+      if (dataUrl) {
+        try {
+          const updated = await updateProfile({ cover: dataUrl });
+          setUser((prev) => (prev ? { ...prev, cover: updated.cover } : prev));
+          addToast('Cover background image updated successfully!', 'success');
+        } catch {
+          addToast('Failed to update cover background image.', 'error');
+        } finally {
+          setSavingCover(false);
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+    if (coverInputRef.current) coverInputRef.current.value = '';
   };
 
   const handleFollowToggle = async (userId, userFullname) => {
@@ -169,6 +266,46 @@ export default function ProfilePage() {
     }
   };
 
+  const handleCopyProfileLink = () => {
+    setShowShareMenu(false);
+    const profileUrl = `${window.location.origin}/profile/${user.username}`;
+    navigator.clipboard.writeText(profileUrl);
+    addToast('Profile link copied to clipboard!', 'success');
+  };
+
+  const handleOpenShareInMessageModal = async () => {
+    setShowShareMenu(false);
+    setShowShareMsgModal(true);
+    try {
+      const res = await api.get('/messages/conversations');
+      setConversations(res.data.conversations || []);
+    } catch {
+      addToast('Unable to fetch conversation partners.', 'error');
+    }
+  };
+
+  const handleSendProfileCardInMessage = async (targetPartnerId) => {
+    if (sharingMsg) return;
+    setSharingMsg(true);
+    try {
+      await api.post(`/messages/${targetPartnerId}`, {
+        sharedProfile: user._id,
+      });
+      addToast(`Shared @${user.username}'s profile in chat!`, 'success');
+      setShowShareMsgModal(false);
+    } catch {
+      addToast('Failed to share profile in message.', 'error');
+    } finally {
+      setSharingMsg(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    addToast('Logged out of NovaSocial.', 'info');
+    navigate('/login');
+  };
+
   if (loading) return <ProfileSkeleton />;
   if (!user) return <div className="page-card">Unable to load profile.</div>;
 
@@ -176,8 +313,6 @@ export default function ProfilePage() {
   const isOwnProfile = matchesId(user, authUserId);
   const isFollowing = authUser?.following?.some((followingId) => String(followingId) === String(user._id));
   const isFollowingUser = (authorId) => authUser?.following?.some((followingId) => String(followingId) === String(authorId));
-  const activeUsers = activeList === 'followers' ? user.followers || [] : user.following || [];
-  const activeTitle = activeList === 'followers' ? 'Followers' : 'Following';
 
   const handlePostUpdated = (updatedPost) => {
     setPosts((prev) => prev.map((p) => (p._id === updatedPost._id ? updatedPost : p)));
@@ -191,56 +326,153 @@ export default function ProfilePage() {
   return (
     <div className="profile-feed-column">
       <div className="page-card profile-card">
-        <img src={user.cover} alt="cover" className="cover" />
+        {/* Cover Background Image Container */}
+        <div className="cover-container" style={{ position: 'relative' }}>
+          <img src={user.cover} alt="cover" className="cover" />
+          {isOwnProfile && (
+            <>
+              <button
+                type="button"
+                className="cover-upload-btn"
+                onClick={() => coverInputRef.current?.click()}
+                disabled={savingCover}
+                title="Change Cover Image"
+              >
+                {savingCover ? <LoadingSpinner size={14} className="white" /> : <><FiCamera /> Edit Cover</>}
+              </button>
+              <input
+                ref={coverInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleCoverUpload}
+              />
+            </>
+          )}
+        </div>
+
         <div className="profile-header">
-          <img src={user.avatar} alt="avatar" className="profile-avatar" />
+          {/* Avatar Container with Upload Icon */}
+          <div className="profile-avatar-wrapper" style={{ position: 'relative' }}>
+            <img src={user.avatar} alt="avatar" className="profile-avatar" />
+            {isOwnProfile && (
+              <>
+                <button
+                  type="button"
+                  className="avatar-upload-btn"
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={savingAvatar}
+                  title="Change Profile Picture"
+                >
+                  {savingAvatar ? <LoadingSpinner size={12} className="white" /> : <FiCamera size={14} />}
+                </button>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleAvatarUpload}
+                />
+              </>
+            )}
+          </div>
+
           <div>
             <h2>{user.fullname}</h2>
             <p>@{user.username}</p>
           </div>
-          {!isOwnProfile ? (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+
+          {/* Action Area */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', position: 'relative' }}>
+            {!isOwnProfile ? (
+              <>
+                <button
+                  className={isFollowing ? 'secondary-btn' : 'primary-btn'}
+                  onClick={() => handleFollowToggle(user._id, user.username)}
+                  disabled={!!followBusyIds[user._id]}
+                  aria-busy={!!followBusyIds[user._id]}
+                >
+                  {!!followBusyIds[user._id] ? <><LoadingSpinner size={14} /> Loading...</> : isFollowing ? 'Unfollow' : 'Follow'}
+                </button>
+                <Link to={`/messages/${user._id}`} className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <FiMessageSquare /> Message
+                </Link>
+              </>
+            ) : (
+              <>
+                <button className="primary-btn" onClick={() => setEditing(!editing)}>
+                  {editing ? 'Cancel' : 'Edit profile'}
+                </button>
+                <button type="button" className="ghost-btn logout-btn" onClick={handleLogout} title="Log out">
+                  <FiLogOut />
+                </button>
+              </>
+            )}
+
+            {/* Profile Share Button */}
+            <div className="options-dropdown-wrapper">
               <button
-                className={isFollowing ? 'secondary-btn' : 'primary-btn'}
-                onClick={() => handleFollowToggle(user._id, user.username)}
-                disabled={!!followBusyIds[user._id]}
-                aria-busy={!!followBusyIds[user._id]}
+                type="button"
+                className="secondary-btn icon-only-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowShareMenu((prev) => !prev);
+                }}
+                title="Share profile"
               >
-                {!!followBusyIds[user._id] ? <><LoadingSpinner size={14} /> Loading...</> : isFollowing ? 'Unfollow' : 'Follow'}
+                <FiShare2 />
               </button>
-              <Link to={`/messages/${user._id}`} className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <FiMessageSquare /> Message
-              </Link>
+
+              {showShareMenu && (
+                <div className="share-popover options-popover" onClick={(e) => e.stopPropagation()}>
+                  <button type="button" className="share-popover-option" onClick={handleCopyProfileLink}>
+                    <FiCopy /> Copy profile link
+                  </button>
+                  <button type="button" className="share-popover-option" onClick={handleOpenShareInMessageModal}>
+                    <FiSend /> Share in message
+                  </button>
+                </div>
+              )}
             </div>
-          ) : (
-            <button className="primary-btn" onClick={() => setEditing(!editing)}>{editing ? 'Cancel' : 'Edit profile'}</button>
-          )}
+          </div>
         </div>
+
         {editing ? (
           <div className="edit-box">
-            <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} />
-            <input value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} placeholder="Website" />
+            <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Bio" />
+            <input value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} placeholder="Website URL" />
             <button className="primary-btn" onClick={saveProfile} disabled={saving} aria-busy={saving}>
-              {saving ? <><LoadingSpinner size={14} /> Saving...</> : 'Save'}
+              {saving ? <><LoadingSpinner size={14} /> Saving...</> : 'Save Profile'}
             </button>
           </div>
         ) : (
           <div className="profile-meta">
             <p>{user.bio}</p>
-            {user.website ? <a href={user.website} target="_blank" rel="noopener noreferrer">{user.website}</a> : null}
+            {user.website ? (
+              <a href={user.website} target="_blank" rel="noopener noreferrer">
+                {user.website}
+              </a>
+            ) : null}
           </div>
         )}
+
         <div className="stats-row">
-          <div><strong>{postCount}</strong><span>Posts</span></div>
+          <div>
+            <strong>{postCount}</strong>
+            <span>Posts</span>
+          </div>
           <button type="button" className="stat-button" onClick={() => setActiveList('followers')}>
-            <strong>{followersCount}</strong><span>Followers</span>
+            <strong>{followersCount}</strong>
+            <span>Followers</span>
           </button>
           <button type="button" className="stat-button" onClick={() => setActiveList('following')}>
-            <strong>{followingCount}</strong><span>Following</span>
+            <strong>{followingCount}</strong>
+            <span>Following</span>
           </button>
         </div>
       </div>
 
+      {/* Profile Post Feed */}
       {postsLoading ? (
         <FeedSkeleton />
       ) : posts.length ? (
@@ -268,41 +500,47 @@ export default function ProfilePage() {
         <div className="page-card empty-state">No posts yet.</div>
       )}
 
-      {activeList ? (
-        <div className="modal-backdrop" onClick={() => setActiveList(null)}>
-          <div className="profile-list-modal" role="dialog" aria-modal="true" aria-label={activeTitle} onClick={(event) => event.stopPropagation()}>
+      {/* Share Profile in Message Modal */}
+      {showShareMsgModal && (
+        <div className="modal-backdrop" onClick={() => setShowShareMsgModal(false)}>
+          <div className="composer-modal-card" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{activeTitle}</h3>
-              <button type="button" className="modal-close" onClick={() => setActiveList(null)} aria-label="Close">
+              <h3>Share Profile in Chat</h3>
+              <button type="button" className="modal-close" onClick={() => setShowShareMsgModal(false)}>
                 <FiX />
               </button>
             </div>
-            <div className="modal-list">
-              {activeUsers.length ? activeUsers.map((person) => (
-                <div key={getEntityId(person)} className="user-row spaced">
-                  <Link to={`/profile/${person.username}`} className="user-row" onClick={() => setActiveList(null)}>
-                    <img src={person.avatar} alt="avatar" className="avatar" />
-                    <div>
-                      <h4>{person.fullname}</h4>
-                      <p>@{person.username}</p>
-                    </div>
-                  </Link>
-                  {authUser?._id !== person._id && (
-                     <button
-                      onClick={() => handleFollowToggle(person._id, person.username)}
-                      className={authUser?.following?.some((followingId) => String(followingId) === String(person._id)) ? 'secondary-btn' : 'accent-btn'}
-                      disabled={!!followBusyIds[person._id]}
-                      aria-busy={!!followBusyIds[person._id]}
+            <div className="composer-modal-form">
+              <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+                Select a conversation partner to send @{user?.username}'s mini profile card to:
+              </p>
+              <div className="search-results-picker" style={{ maxHeight: '280px' }}>
+                {conversations.length > 0 ? (
+                  conversations.map((c) => (
+                    <div
+                      key={c._id}
+                      className="picker-row"
+                      onClick={() => handleSendProfileCardInMessage(c.partner?._id)}
+                      style={{ cursor: sharingMsg ? 'not-allowed' : 'pointer' }}
                     >
-                      {authUser?.following?.some((followingId) => String(followingId) === String(person._id)) ? 'Unfollow' : 'Follow'}
-                    </button>
-                  )}
-                </div>
-              )) : <div className="empty-state">No users to show.</div>}
+                      <img src={c.partner?.avatar} alt="avatar" className="avatar" style={{ width: 36, height: 36 }} />
+                      <div style={{ flex: 1 }}>
+                        <strong>{c.partner?.fullname}</strong>
+                        <small style={{ display: 'block', color: 'var(--text-muted)' }}>@{c.partner?.username}</small>
+                      </div>
+                      <FiSend style={{ color: '#6366f1' }} />
+                    </div>
+                  ))
+                ) : (
+                  <p style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    No active chat conversations. Start a message first!
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
