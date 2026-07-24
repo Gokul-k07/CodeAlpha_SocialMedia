@@ -3,12 +3,25 @@ import mongoose from 'mongoose';
 import Message from '../models/Message.js';
 import Conversation from '../models/Conversation.js';
 import User from '../models/User.js';
+import Post from '../models/Post.js';
 import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Helper to validate ObjectId
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+const DANGEROUS_EXTENSIONS = [
+  'exe', 'msi', 'bat', 'cmd', 'sh', 'vbs', 'ps1', 'apk', 'jar', 'js', 'scr', 'dll', 'sys', 'com', 'py', 'iso', 'zip', 'rar', '7z', 'php', 'html', 'htm'
+];
+
+function isSafeAttachment(att) {
+  if (!att || !att.name) return false;
+  const ext = att.name.split('.').pop().toLowerCase();
+  if (DANGEROUS_EXTENSIONS.includes(ext)) return false;
+  if (att.fileSize && att.fileSize > 5 * 1024 * 1024) return false;
+  return true;
+}
 
 // @desc    Get total unread messages count for authenticated user
 // @route   GET /api/messages/unread-count
@@ -63,12 +76,15 @@ router.get('/conversations', protect, async (req, res, next) => {
   }
 });
 
-// @desc    Get chat message thread with a specific user
+// @desc    Get chat message thread with a specific user (With Upward Pagination)
 // @route   GET /api/messages/:userId
 // @access  Private
 router.get('/:userId', protect, async (req, res, next) => {
   try {
     const { userId } = req.params;
+    const page = parseInt(req.query.page || '1', 10);
+    const limit = parseInt(req.query.limit || '10', 10);
+    const skip = (page - 1) * limit;
 
     if (!isValidObjectId(userId)) {
       return res.status(400).json({ message: 'Invalid user ID' });
@@ -83,25 +99,42 @@ router.get('/:userId', protect, async (req, res, next) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    const messages = await Message.find({
+    const query = {
       $or: [
         { sender: req.user.id, recipient: userId },
         { sender: userId, recipient: req.user.id },
       ],
-    }).sort({ createdAt: 1 });
+    };
 
-    res.json({ messages, partner });
+    const total = await Message.countDocuments(query);
+    const rawMessages = await Message.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('sharedProfile', 'username fullname avatar bio')
+      .populate({
+        path: 'sharedPost',
+        select: 'caption image images author createdAt',
+        populate: { path: 'author', select: 'username fullname avatar' },
+      });
+
+    // Reverse to return chronological order (oldest to newest for front-end rendering)
+    const messages = rawMessages.reverse();
+    const hasMore = skip + rawMessages.length < total;
+
+    res.json({ messages, partner, page, hasMore, total });
   } catch (error) {
     next(error);
   }
 });
 
-// @desc    Send a private message to a specific user
+// @desc    Send a private message to a specific user with rich media attachments
 // @route   POST /api/messages/:userId
 // @access  Private
 router.post('/:userId', protect, async (req, res, next) => {
   try {
     const { userId } = req.params;
+    const { text = '', images = [], attachments = [], sharedProfile = null, sharedPost = null } = req.body;
 
     if (!isValidObjectId(userId)) {
       return res.status(400).json({ message: 'Invalid recipient user ID' });
@@ -116,22 +149,51 @@ router.post('/:userId', protect, async (req, res, next) => {
       return res.status(404).json({ message: 'Recipient user not found' });
     }
 
-    const text = String(req.body.text || '').trim();
-    if (!text) {
-      return res.status(400).json({ message: 'Message text cannot be empty' });
+    const safeAttachments = (attachments || []).filter(isSafeAttachment);
+    const trimmedText = String(text || '').trim();
+
+    const hasText = trimmedText.length > 0;
+    const hasImages = images.length > 0;
+    const hasDocs = safeAttachments.length > 0;
+    const hasProfile = !!sharedProfile;
+    const hasPost = !!sharedPost;
+
+    if (!hasText && !hasImages && !hasDocs && !hasProfile && !hasPost) {
+      return res.status(400).json({ message: 'Message cannot be empty. Please include text, images, document, profile, or post.' });
     }
 
-    if (text.length > 2000) {
+    if (trimmedText.length > 2000) {
       return res.status(400).json({ message: 'Message exceeds maximum length of 2000 characters' });
     }
 
     // Create the message
-    const message = await Message.create({
+    const createdMsg = await Message.create({
       sender: req.user.id,
       recipient: userId,
-      text,
+      text: trimmedText,
+      images,
+      attachments: safeAttachments,
+      sharedProfile: hasProfile ? sharedProfile : null,
+      sharedPost: hasPost ? sharedPost : null,
       read: false,
     });
+
+    const populated = await Message.findById(createdMsg._id)
+      .populate('sharedProfile', 'username fullname avatar bio')
+      .populate({
+        path: 'sharedPost',
+        select: 'caption image images author createdAt',
+        populate: { path: 'author', select: 'username fullname avatar' },
+      });
+
+    // Create summary text for Conversation list
+    let summary = trimmedText;
+    if (!summary) {
+      if (hasImages) summary = '📷 Image attachment';
+      else if (hasDocs) summary = `📄 ${safeAttachments[0]?.name || 'Document'}`;
+      else if (hasProfile) summary = '👤 Shared profile';
+      else if (hasPost) summary = '📌 Shared post';
+    }
 
     // Create or update conversation document
     let conversation = await Conversation.findOne({
@@ -141,18 +203,18 @@ router.post('/:userId', protect, async (req, res, next) => {
     if (!conversation) {
       conversation = await Conversation.create({
         participants: [req.user.id, userId],
-        lastMessage: text,
+        lastMessage: summary,
         lastMessageSender: req.user.id,
         lastMessageAt: new Date(),
       });
     } else {
-      conversation.lastMessage = text;
+      conversation.lastMessage = summary;
       conversation.lastMessageSender = req.user.id;
       conversation.lastMessageAt = new Date();
       await conversation.save();
     }
 
-    res.status(201).json({ message });
+    res.status(201).json({ message: populated });
   } catch (error) {
     next(error);
   }

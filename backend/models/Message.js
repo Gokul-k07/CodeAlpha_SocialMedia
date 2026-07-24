@@ -4,7 +4,18 @@ const messageSchema = new mongoose.Schema(
   {
     sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    text: { type: String, required: true, trim: true, maxlength: 2000 },
+    text: { type: String, trim: true, maxlength: 2000, default: '' },
+    images: [{ type: String }],
+    attachments: [
+      {
+        name: { type: String },
+        fileUrl: { type: String },
+        fileType: { type: String },
+        fileSize: { type: Number },
+      },
+    ],
+    sharedProfile: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    sharedPost: { type: mongoose.Schema.Types.ObjectId, ref: 'Post', default: null },
     read: { type: Boolean, default: false },
   },
   { timestamps: true }

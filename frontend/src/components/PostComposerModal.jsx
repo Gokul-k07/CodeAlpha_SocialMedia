@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { FiPlus, FiX, FiImage, FiFileText, FiGlobe, FiLock, FiTrash2, FiHash, FiAtSign } from 'react-icons/fi';
+import { FiPlus, FiX, FiImage, FiFileText, FiUpload, FiTrash2, FiHash } from 'react-icons/fi';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from './ToastProvider';
@@ -15,7 +15,6 @@ export default function PostComposerModal({ isOpen, onClose, onPostCreated }) {
   const [showImageUrlInput, setShowImageUrlInput] = useState(false);
   const [attachments, setAttachments] = useState([]);
   const [visibility, setVisibility] = useState('anyone');
-  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
   const docInputRef = useRef(null);
@@ -32,6 +31,28 @@ export default function PostComposerModal({ isOpen, onClose, onPostCreated }) {
     setShowImageUrlInput(false);
   };
 
+  const handleDeviceImageUpload = (e) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach((file) => {
+      if (!file.type.startsWith('image/')) {
+        addToast('Please select image files.', 'error');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        addToast(`Image ${file.name} exceeds 5MB limit.`, 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setImages((prev) => [...prev, event.target.result]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  };
+
   const handleRemoveImage = (index) => {
     setImages((prev) => prev.filter((_, i) => i !== index));
   };
@@ -39,13 +60,11 @@ export default function PostComposerModal({ isOpen, onClose, onPostCreated }) {
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files || []);
     files.forEach((file) => {
-      // Validate file size (< 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        addToast(`File ${file.name} exceeds maximum 10MB limit.`, 'error');
+      if (file.size > 5 * 1024 * 1024) {
+        addToast(`File ${file.name} exceeds 5MB limit.`, 'error');
         return;
       }
 
-      // Check allowed document extensions
       const ext = file.name.split('.').pop().toLowerCase();
       const allowedExts = ['pdf', 'doc', 'docx'];
       if (!allowedExts.includes(ext)) {
@@ -205,10 +224,27 @@ export default function PostComposerModal({ isOpen, onClose, onPostCreated }) {
               <button
                 type="button"
                 className="tool-btn"
+                onClick={() => imageInputRef.current?.click()}
+                title="Upload Image from Device"
+              >
+                <FiUpload /> <span>Upload Image</span>
+              </button>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleDeviceImageUpload}
+                multiple
+              />
+
+              <button
+                type="button"
+                className="tool-btn"
                 onClick={() => setShowImageUrlInput((prev) => !prev)}
                 title="Add Image URL"
               >
-                <FiImage /> <span>Image</span>
+                <FiImage /> <span>Image URL</span>
               </button>
 
               <button

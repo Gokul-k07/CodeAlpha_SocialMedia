@@ -1,6 +1,17 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { FiSearch, FiSend, FiArrowLeft, FiMessageSquare, FiUser } from 'react-icons/fi';
+import {
+  FiSearch,
+  FiSend,
+  FiArrowLeft,
+  FiMessageSquare,
+  FiUser,
+  FiPaperclip,
+  FiX,
+  FiFileText,
+  FiRefreshCw,
+  FiExternalLink,
+} from 'react-icons/fi';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
@@ -8,6 +19,8 @@ import { useMessages } from '../context/MessageContext';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ConversationListSkeleton from '../components/skeletons/ConversationListSkeleton';
 import MessageSkeleton from '../components/skeletons/MessageSkeleton';
+import MessageAttachmentModal from '../components/MessageAttachmentModal';
+import DocumentActionModal from '../components/DocumentActionModal';
 
 export default function MessagesPage() {
   const { userId: activeUserId } = useParams();
@@ -23,11 +36,20 @@ export default function MessagesPage() {
   const [messages, setMessages] = useState([]);
   const [partner, setPartner] = useState(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const [textDraft, setTextDraft] = useState('');
-  const [sending, setSending] = useState(false);
+  const [imagesDraft, setImagesDraft] = useState([]);
+  const [attachmentsDraft, setAttachmentsDraft] = useState([]);
+  const [sharedProfileDraft, setSharedProfileDraft] = useState(null);
+  const [sharedPostDraft, setSharedPostDraft] = useState(null);
+  const [isAttachModalOpen, setIsAttachModalOpen] = useState(false);
+  const [selectedDocForAction, setSelectedDocForAction] = useState(null);
 
   const messagesEndRef = useRef(null);
+  const chatBodyRef = useRef(null);
 
   const formatRelativeTime = (dateString) => {
     if (!dateString) return '';
@@ -37,7 +59,7 @@ export default function MessagesPage() {
     if (seconds < 60) return `${seconds}s ago`;
     const minutes = Math.round(seconds / 60);
     if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.round(minutes / 60);
+    const hours = Math.round(seconds / 60);
     if (hours < 24) return `${hours}h ago`;
     const days = Math.round(hours / 24);
     return `${days}d ago`;
@@ -62,24 +84,26 @@ export default function MessagesPage() {
   const loadMessages = useCallback(async (targetUserId, isInitial = false) => {
     if (!targetUserId) return;
     try {
-      if (isInitial) setLoadingMessages(true);
-      const res = await api.get(`/messages/${targetUserId}`);
+      if (isInitial) {
+        setLoadingMessages(true);
+        setPage(1);
+      }
+      const res = await api.get(`/messages/${targetUserId}?page=1&limit=10`);
       const fetchedMessages = res.data.messages || [];
 
-      // Update state only if new messages arrive or first load to avoid unnecessary DOM jitter
       setMessages((prev) => {
-        if (isInitial || prev.length !== fetchedMessages.length || (prev.length > 0 && prev[prev.length - 1]._id !== fetchedMessages[fetchedMessages.length - 1]._id)) {
-          return fetchedMessages;
-        }
-        return prev;
+        if (isInitial) return fetchedMessages;
+        // Merge without losing pending local failed/sending messages
+        const pending = prev.filter((m) => m.status === 'sending' || m.status === 'failed');
+        const existingIds = new Set(fetchedMessages.map((m) => m._id));
+        const filteredPending = pending.filter((m) => !existingIds.has(m._id));
+        return [...fetchedMessages, ...filteredPending];
       });
 
       setPartner(res.data.partner);
+      setHasMore(res.data.hasMore || false);
 
-      // Mark unread messages from target user as read
       await api.put(`/messages/${targetUserId}/read`);
-      
-      // Update local unread state for this conversation
       setConversations((prev) =>
         prev.map((c) => (c.partner?._id === targetUserId ? { ...c, unreadCount: 0 } : c))
       );
@@ -104,91 +128,146 @@ export default function MessagesPage() {
     }
   }, [activeUserId, loadMessages]);
 
-  // Real-time background polling (every 2s when tab is active)
+  // Polling for new messages (every 2.5s)
   useEffect(() => {
     const interval = setInterval(() => {
       if (!document.hidden) {
         loadConversations(false);
-        if (activeUserId) {
+        if (activeUserId && page === 1) {
           loadMessages(activeUserId, false);
         }
       }
-    }, 2000);
+    }, 2500);
     return () => clearInterval(interval);
-  }, [activeUserId, loadConversations, loadMessages]);
+  }, [activeUserId, page, loadConversations, loadMessages]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (page === 1) {
+      scrollToBottom();
+    }
+  }, [messages, page]);
 
-  const handleSendMessage = async (e) => {
-    if (e) e.preventDefault();
-    const trimmed = textDraft.trim();
-    if (!trimmed || !activeUserId || sending) return;
+  // Upward pagination scroll handler
+  const handleScroll = () => {
+    const el = chatBodyRef.current;
+    if (!el || loadingMore || !hasMore) return;
+    if (el.scrollTop === 0) {
+      loadOlderMessages();
+    }
+  };
 
-    setSending(true);
+  const loadOlderMessages = async () => {
+    const el = chatBodyRef.current;
+    if (!el || loadingMore || !hasMore) return;
+
+    const oldScrollHeight = el.scrollHeight;
+    setLoadingMore(true);
+
     try {
-      const res = await api.post(`/messages/${activeUserId}`, { text: trimmed });
-      const newMsg = res.data.message;
+      const nextPage = page + 1;
+      const res = await api.get(`/messages/${activeUserId}?page=${nextPage}&limit=10`);
+      const olderMessages = res.data.messages || [];
 
-      // Optimistically append new message to state
-      setMessages((prev) => [...prev, newMsg]);
-      setTextDraft('');
+      setMessages((prev) => [...olderMessages, ...prev]);
+      setPage(nextPage);
+      setHasMore(res.data.hasMore);
 
-      // Update or insert conversation in sidebar list
-      setConversations((prev) => {
-        const existingIndex = prev.findIndex((c) => c.partner?._id === activeUserId);
-        if (existingIndex > -1) {
-          const updated = [...prev];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            lastMessage: trimmed,
-            lastMessageAt: newMsg.createdAt,
-            lastMessageSender: authUser._id,
-          };
-          const [moved] = updated.splice(existingIndex, 1);
-          return [moved, ...updated];
-        } else if (partner) {
-          return [
-            {
-              _id: Date.now().toString(),
-              partner,
-              lastMessage: trimmed,
-              lastMessageAt: newMsg.createdAt,
-              lastMessageSender: authUser._id,
-              unreadCount: 0,
-            },
-            ...prev,
-          ];
+      requestAnimationFrame(() => {
+        if (el) {
+          el.scrollTop = el.scrollHeight - oldScrollHeight;
         }
-        return prev;
       });
-    } catch (err) {
-      addToast(err.response?.data?.message || 'Failed to send message.', 'error');
+    } catch {
+      // Quiet background error
     } finally {
-      setSending(false);
+      setLoadingMore(false);
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
+  const executeSend = async (payloadMsg, tempId) => {
+    try {
+      const res = await api.post(
+        `/messages/${activeUserId}`,
+        {
+          text: payloadMsg.text,
+          images: payloadMsg.images,
+          attachments: payloadMsg.attachments,
+          sharedProfile: payloadMsg.sharedProfile?._id || payloadMsg.sharedProfile,
+          sharedPost: payloadMsg.sharedPost?._id || payloadMsg.sharedPost,
+        },
+        { timeout: 5000 }
+      );
+
+      const confirmed = { ...res.data.message, status: 'sent' };
+      setMessages((prev) => prev.map((m) => (m._id === tempId ? confirmed : m)));
+    } catch {
+      setMessages((prev) => prev.map((m) => (m._id === tempId ? { ...m, status: 'failed' } : m)));
+      addToast('Message delivery failed. Tap retry to resend.', 'error');
     }
   };
 
-  const filteredConversations = conversations.filter((c) => {
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return true;
+  const handleSendMessage = (e) => {
+    if (e) e.preventDefault();
+
+    const trimmedText = textDraft.trim();
+    const hasText = trimmedText.length > 0;
+    const hasImages = imagesDraft.length > 0;
+    const hasDocs = attachmentsDraft.length > 0;
+    const hasProfile = !!sharedProfileDraft;
+    const hasPost = !!sharedPostDraft;
+
+    if (!hasText && !hasImages && !hasDocs && !hasProfile && !hasPost) {
+      addToast('Message cannot be empty. Attach text, image, document, profile, or post.', 'error');
+      return;
+    }
+
+    if (!activeUserId) return;
+
+    const tempId = `temp-${Date.now()}`;
+    const newPendingMsg = {
+      _id: tempId,
+      sender: { _id: authUser._id },
+      recipient: activeUserId,
+      text: trimmedText,
+      images: [...imagesDraft],
+      attachments: [...attachmentsDraft],
+      sharedProfile: sharedProfileDraft,
+      sharedPost: sharedPostDraft,
+      createdAt: new Date().toISOString(),
+      status: 'sending',
+    };
+
+    // Optimistically update message state
+    setMessages((prev) => [...prev, newPendingMsg]);
+
+    // Clear drafts
+    setTextDraft('');
+    setImagesDraft([]);
+    setAttachmentsDraft([]);
+    setSharedProfileDraft(null);
+    setSharedPostDraft(null);
+
+    // Execute delivery with 5s timeout
+    executeSend(newPendingMsg, tempId);
+  };
+
+  const handleRetrySend = (failedMsg) => {
+    setMessages((prev) => prev.map((m) => (m._id === failedMsg._id ? { ...m, status: 'sending' } : m)));
+    executeSend(failedMsg, failedMsg._id);
+  };
+
+  const filteredConversations = conversations.filter((conv) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
     return (
-      c.partner?.username?.toLowerCase().includes(q) ||
-      c.partner?.fullname?.toLowerCase().includes(q)
+      conv.partner?.fullname?.toLowerCase().includes(q) ||
+      conv.partner?.username?.toLowerCase().includes(q)
     );
   });
 
   return (
     <div className="messages-container">
-      {/* Sidebar: Conversation List */}
+      {/* Conversations Sidebar */}
       <aside className={`conversations-sidebar ${activeUserId ? 'mobile-hidden' : ''}`}>
         <div className="conversations-header">
           <h2>Messages</h2>
@@ -196,9 +275,9 @@ export default function MessagesPage() {
             <FiSearch className="search-icon" />
             <input
               type="text"
-              placeholder="Search conversations..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search conversations..."
             />
           </div>
         </div>
@@ -208,11 +287,12 @@ export default function MessagesPage() {
             <ConversationListSkeleton />
           ) : filteredConversations.length > 0 ? (
             filteredConversations.map((conv) => {
-              const isSelected = conv.partner?._id === activeUserId;
+              const isActive = conv.partner?._id === activeUserId;
+              const isUnread = conv.unreadCount > 0;
               return (
                 <div
-                  key={conv._id || conv.partner?._id}
-                  className={`conversation-item ${isSelected ? 'active' : ''} ${conv.unreadCount > 0 ? 'unread' : ''}`}
+                  key={conv._id}
+                  className={`conversation-item ${isActive ? 'active' : ''} ${isUnread ? 'unread' : ''}`}
                   onClick={() => navigate(`/messages/${conv.partner?._id}`)}
                 >
                   <img src={conv.partner?.avatar} alt="avatar" className="avatar" />
@@ -223,12 +303,10 @@ export default function MessagesPage() {
                     </div>
                     <div className="conversation-bottom-row">
                       <p className="preview-text">
-                        {conv.lastMessageSender === authUser?._id ? 'You: ' : ''}
+                        {conv.lastMessageSender === authUser?._id && 'You: '}
                         {conv.lastMessage}
                       </p>
-                      {conv.unreadCount > 0 && (
-                        <span className="unread-dot-badge">{conv.unreadCount}</span>
-                      )}
+                      {isUnread && <span className="unread-dot-badge">{conv.unreadCount}</span>}
                     </div>
                   </div>
                 </div>
@@ -236,96 +314,244 @@ export default function MessagesPage() {
             })
           ) : (
             <div className="empty-conversations">
-              <FiMessageSquare size={32} />
+              <FiMessageSquare size={36} />
               <p>No conversations found.</p>
-              <small>Search for a user or start a chat from a profile page.</small>
             </div>
           )}
         </div>
       </aside>
 
-      {/* Main Chat Panel */}
+      {/* Main Chat Thread Area */}
       <section className={`chat-panel ${!activeUserId ? 'mobile-hidden' : ''}`}>
-        {activeUserId ? (
+        {activeUserId && partner ? (
           <>
+            {/* Header */}
             <div className="chat-header">
-              <button
-                type="button"
-                className="ghost-btn back-btn"
-                onClick={() => navigate('/messages')}
-                aria-label="Back to conversations"
-              >
-                <FiArrowLeft size={20} />
-              </button>
-              {partner && (
-                <div className="chat-header-user">
-                  <img src={partner.avatar} alt="avatar" className="avatar" />
-                  <div>
-                    <h3>{partner.fullname}</h3>
-                    <p>@{partner.username}</p>
-                  </div>
-                </div>
-              )}
-              {partner && (
-                <Link to={`/profile/${partner.username}`} className="ghost-btn profile-link-btn" title="View Profile">
-                  <FiUser /> Profile
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Link to="/messages" className="ghost-btn mobile-only-back" aria-label="Back">
+                  <FiArrowLeft size={20} />
                 </Link>
-              )}
+                <img src={partner.avatar} alt="avatar" className="avatar" />
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem' }}>
+                    <Link to={`/profile/${partner.username}`}>{partner.fullname}</Link>
+                  </h3>
+                  <small style={{ color: 'var(--text-muted)' }}>@{partner.username}</small>
+                </div>
+              </div>
+              <Link to={`/profile/${partner.username}`} className="secondary-btn" style={{ padding: '6px 14px', fontSize: '0.82rem' }}>
+                <FiUser /> Profile
+              </Link>
             </div>
 
-            <div className="messages-scroll">
+            {/* Message Feed Body (Upward Scroll Pagination) */}
+            <div className="messages-chat-body" ref={chatBodyRef} onScroll={handleScroll}>
+              {loadingMore && (
+                <div style={{ textAlign: 'center', padding: '10px 0' }}>
+                  <LoadingSpinner size={16} /> <small>Loading older messages...</small>
+                </div>
+              )}
+
               {loadingMessages ? (
                 <MessageSkeleton />
               ) : messages.length > 0 ? (
                 messages.map((msg) => {
-                  const isSentByMe = msg.sender === authUser?._id || msg.sender?._id === authUser?._id;
+                  const isMine = String(msg.sender?._id || msg.sender) === String(authUser._id);
+                  const isFailed = msg.status === 'failed';
+                  const isSending = msg.status === 'sending';
+
                   return (
-                    <div
-                      key={msg._id}
-                      className={`message-bubble-wrapper ${isSentByMe ? 'sent' : 'received'}`}
-                    >
-                      <div className="message-bubble">
-                        <p>{msg.text}</p>
-                        <span className="message-time">{formatRelativeTime(msg.createdAt)}</span>
+                    <div key={msg._id} className={`msg-bubble-wrapper ${isMine ? 'mine' : 'theirs'}`}>
+                      {!isMine && <img src={partner.avatar} alt="avatar" className="comment-avatar" />}
+
+                      <div className={`msg-bubble ${isMine ? 'mine' : 'theirs'} ${isFailed ? 'failed-bubble' : ''}`}>
+                        {/* Text */}
+                        {msg.text && <p className="msg-text">{msg.text}</p>}
+
+                        {/* Images Attachment */}
+                        {msg.images?.length > 0 && (
+                          <div className="msg-images-grid">
+                            {msg.images.map((imgUrl, i) => (
+                              <img key={i} src={imgUrl} alt="attached media" className="msg-image-item" />
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Documents Attachment */}
+                        {msg.attachments?.length > 0 && (
+                          <div className="msg-docs-list">
+                            {msg.attachments.map((doc, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                className="document-attachment-card msg-doc-card"
+                                onClick={() => setSelectedDocForAction(doc)}
+                              >
+                                <FiFileText size={20} />
+                                <div className="doc-meta">
+                                  <strong className="doc-name">{doc.name}</strong>
+                                  <small>{doc.fileType?.toUpperCase()}</small>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Shared Profile Card */}
+                        {msg.sharedProfile && (
+                          <Link to={`/profile/${msg.sharedProfile.username}`} className="msg-shared-profile-card">
+                            <img src={msg.sharedProfile.avatar} alt="avatar" className="avatar" />
+                            <div className="profile-card-info">
+                              <strong>{msg.sharedProfile.fullname}</strong>
+                              <span>@{msg.sharedProfile.username}</span>
+                              {msg.sharedProfile.bio && <small>{msg.sharedProfile.bio.substring(0, 35)}...</small>}
+                            </div>
+                            <FiExternalLink size={16} />
+                          </Link>
+                        )}
+
+                        {/* Shared Post Card */}
+                        {msg.sharedPost && (
+                          <Link to={`/post/${msg.sharedPost._id}`} className="msg-shared-post-card">
+                            <div className="shared-post-header">
+                              <img src={msg.sharedPost.author?.avatar} alt="avatar" className="comment-avatar" />
+                              <strong>{msg.sharedPost.author?.fullname || 'Creator'}</strong>
+                            </div>
+                            {msg.sharedPost.image && (
+                              <img src={msg.sharedPost.image} alt="post media" className="shared-post-thumb" />
+                            )}
+                            <p>{msg.sharedPost.caption?.substring(0, 50)}...</p>
+                            <FiExternalLink size={14} className="link-icon" />
+                          </Link>
+                        )}
+
+                        <div className="msg-time-row">
+                          <small>{formatRelativeTime(msg.createdAt)}</small>
+                          {isSending && <small style={{ color: '#818cf8', marginLeft: '6px' }}>Sending...</small>}
+                          {isFailed && (
+                            <button
+                              type="button"
+                              className="msg-retry-btn"
+                              onClick={() => handleRetrySend(msg)}
+                              title="Message failed to send. Click to retry."
+                            >
+                              <FiRefreshCw size={12} /> Retry
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
                 })
               ) : (
-                <div className="empty-chat-state">
-                  <p>Say hello to {partner?.fullname || 'your friend'}! 👋</p>
+                <div className="empty-conversations" style={{ margin: 'auto' }}>
+                  <FiMessageSquare size={40} />
+                  <p>No messages yet. Send a message to start chatting!</p>
                 </div>
               )}
               <div ref={messagesEndRef} />
             </div>
 
-            <form onSubmit={handleSendMessage} className="chat-input-bar">
-              <textarea
-                placeholder="Write a message..."
+            {/* Pre-Send Attachment Previews */}
+            {(imagesDraft.length > 0 || attachmentsDraft.length > 0 || sharedProfileDraft || sharedPostDraft) && (
+              <div className="msg-draft-previews-bar">
+                {imagesDraft.map((url, i) => (
+                  <div key={i} className="draft-chip">
+                    <span>📷 Image</span>
+                    <button type="button" onClick={() => setImagesDraft((prev) => prev.filter((_, idx) => idx !== i))}>
+                      <FiX />
+                    </button>
+                  </div>
+                ))}
+
+                {attachmentsDraft.map((doc, i) => (
+                  <div key={i} className="draft-chip">
+                    <span>📄 {doc.name}</span>
+                    <button type="button" onClick={() => setAttachmentsDraft((prev) => prev.filter((_, idx) => idx !== i))}>
+                      <FiX />
+                    </button>
+                  </div>
+                ))}
+
+                {sharedProfileDraft && (
+                  <div className="draft-chip">
+                    <span>👤 @{sharedProfileDraft.username}</span>
+                    <button type="button" onClick={() => setSharedProfileDraft(null)}>
+                      <FiX />
+                    </button>
+                  </div>
+                )}
+
+                {sharedPostDraft && (
+                  <div className="draft-chip">
+                    <span>📌 Shared Post</span>
+                    <button type="button" onClick={() => setSharedPostDraft(null)}>
+                      <FiX />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Input Footer Toolbar */}
+            <form onSubmit={handleSendMessage} className="chat-footer">
+              <button
+                type="button"
+                className="ghost-btn attach-btn"
+                onClick={() => setIsAttachModalOpen(true)}
+                title="Add Attachment"
+              >
+                <FiPaperclip size={20} />
+              </button>
+
+              <input
+                type="text"
                 value={textDraft}
                 onChange={(e) => setTextDraft(e.target.value)}
-                onKeyDown={handleKeyDown}
-                rows={1}
-                disabled={sending}
+                placeholder="Type a message..."
               />
+
               <button
                 type="submit"
                 className="primary-btn send-btn"
-                disabled={!textDraft.trim() || sending}
-                aria-busy={sending}
+                disabled={
+                  !textDraft.trim() &&
+                  imagesDraft.length === 0 &&
+                  attachmentsDraft.length === 0 &&
+                  !sharedProfileDraft &&
+                  !sharedPostDraft
+                }
               >
-                {sending ? <LoadingSpinner size={16} className="white" /> : <FiSend />}
+                <FiSend />
               </button>
             </form>
           </>
         ) : (
-          <div className="no-chat-selected">
+          <div className="empty-conversations" style={{ margin: 'auto' }}>
             <FiMessageSquare size={48} />
-            <h3>Select a conversation</h3>
-            <p>Choose from your existing chats or visit a profile to start a new message.</p>
+            <h2>Select a Conversation</h2>
+            <p>Pick a user from your left sidebar to open or start a chat thread.</p>
           </div>
         )}
       </section>
+
+      {/* Rich Attachment Modal */}
+      <MessageAttachmentModal
+        isOpen={isAttachModalOpen}
+        onClose={() => setIsAttachModalOpen(false)}
+        onAddImage={(url) => setImagesDraft((prev) => [...prev, url])}
+        onAddDocument={(doc) => setAttachmentsDraft((prev) => [...prev, doc])}
+        onShareProfile={(p) => setSharedProfileDraft(p)}
+        onSharePost={(post) => setSharedPostDraft(post)}
+        onAddHashtag={(tag) => setTextDraft((prev) => (prev ? `${prev} ${tag}` : tag))}
+      />
+
+      {/* Document Action Modal */}
+      <DocumentActionModal
+        document={selectedDocForAction}
+        isOpen={!!selectedDocForAction}
+        onClose={() => setSelectedDocForAction(null)}
+      />
     </div>
   );
 }
