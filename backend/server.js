@@ -12,6 +12,8 @@ import userRoutes from './routes/userRoutes.js';
 import followRoutes from './routes/followRoutes.js';
 import searchRoutes from './routes/searchRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
+import messageRoutes from './routes/messageRoutes.js';
 import { connectDB } from './config/db.js';
 
 dotenv.config();
@@ -34,7 +36,21 @@ app.use(cors({
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan('dev'));
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 300 }));
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  message: { message: 'Too many authentication requests. Please try again in 15 minutes.' },
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10000,
+  skip: (req) => req.path.includes('/messages') || req.path.includes('/notifications') || req.path.includes('/health'),
+});
+
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/', apiLimiter);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, message: 'NovaSocial backend is running' }));
 
@@ -44,6 +60,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/follow', followRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/messages', messageRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { FiBookmark, FiHeart, FiMessageCircle, FiSend, FiX } from 'react-icons/fi';
+import { FiX, FiMessageSquare } from 'react-icons/fi';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
 import LoadingSpinner from '../components/LoadingSpinner';
 import FeedSkeleton from '../components/skeletons/FeedSkeleton';
 import ProfileSkeleton from '../components/skeletons/ProfileSkeleton';
+import PostCard from '../components/PostCard';
 
 const getEntityId = (entity) => entity?._id || entity;
 
@@ -29,7 +30,27 @@ export default function ProfilePage() {
   const [postBusyIds, setPostBusyIds] = useState({});
   const [activeList, setActiveList] = useState(null);
   const [form, setForm] = useState({ bio: '', website: '' });
+  const [expandedCommentPostId, setExpandedCommentPostId] = useState(null);
+  const [commentDrafts, setCommentDrafts] = useState({});
   const { addToast } = useToast();
+
+  const toggleComments = (postId) => {
+    setExpandedCommentPostId((prev) => (prev === postId ? null : postId));
+  };
+
+  const formatRelativeTime = (dateString) => {
+    if (!dateString) return 'Just now';
+    const date = new Date(dateString);
+    const now = new Date();
+    const seconds = Math.round((now - date) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.round(hours / 24);
+    return `${days}d ago`;
+  };
 
   const loadProfilePosts = async (profileId, showSkeleton = false) => {
     if (!profileId) return;
@@ -86,12 +107,12 @@ export default function ProfilePage() {
     if (followBusyIds[userId]) return;
     setFollowBusyIds((prev) => ({ ...prev, [userId]: true }));
     try {
-      const res = await authToggleFollow(userId);
+      await authToggleFollow(userId);
       const isNowFollowing = authUser?.following?.some((followingId) => String(followingId) === String(userId));
       if (matchesId(user, userId)) {
         setFollowersCount((current) => current + (isNowFollowing ? -1 : 1));
       }
-      addToast(isNowFollowing ? `Unfollowed @${userFullname}` : `Following @${userFullname}`, 'success');
+      addToast(isNowFollowing ? `Unfollowed @${userFullname || 'user'}` : `Following @${userFullname || 'user'}`, 'success');
     } catch {
       addToast('Unable to update follow status', 'error');
     } finally {
@@ -103,8 +124,13 @@ export default function ProfilePage() {
     if (postBusyIds[postId]) return;
     setPostBusyIds((prev) => ({ ...prev, [postId]: 'like' }));
     try {
-      await api.post(`/posts/${postId}/like`);
-      await loadProfilePosts(user?._id);
+      const res = await api.post(`/posts/${postId}/like`);
+      const updatedPost = res.data.post;
+      if (updatedPost) {
+        setPosts((prev) => prev.map((p) => (p._id === postId ? { ...p, likes: updatedPost.likes } : p)));
+      } else {
+        await loadProfilePosts(user?._id);
+      }
       addToast('Post liked', 'success');
     } catch {
       addToast('Unable to update like state.', 'error');
@@ -118,7 +144,6 @@ export default function ProfilePage() {
     setPostBusyIds((prev) => ({ ...prev, [postId]: 'bookmark' }));
     try {
       await api.post(`/posts/${postId}/bookmark`);
-      await loadProfilePosts(user?._id);
       addToast('Post saved', 'success');
     } catch {
       addToast('Unable to update bookmark.', 'error');
@@ -127,12 +152,15 @@ export default function ProfilePage() {
     }
   };
 
-  const addComment = async (postId, text) => {
-    if (!text.trim() || postBusyIds[postId]) return;
+  const addComment = async (postId) => {
+    const text = (commentDrafts[postId] || '').trim();
+    if (!text || postBusyIds[postId]) return;
     setPostBusyIds((prev) => ({ ...prev, [postId]: 'comment' }));
     try {
-      await api.post(`/posts/${postId}/comment`, { text });
-      await loadProfilePosts(user?._id);
+      const res = await api.post(`/posts/${postId}/comment`, { text });
+      const updatedPost = res.data.post;
+      setPosts((prev) => prev.map((p) => (p._id === postId ? { ...p, comments: updatedPost.comments } : p)));
+      setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
       addToast('Comment added', 'success');
     } catch {
       addToast('Unable to add comment.', 'error');
@@ -147,6 +175,7 @@ export default function ProfilePage() {
   const followingCount = user.followingCount ?? user.following?.length ?? 0;
   const isOwnProfile = matchesId(user, authUserId);
   const isFollowing = authUser?.following?.some((followingId) => String(followingId) === String(user._id));
+  const isFollowingUser = (authorId) => authUser?.following?.some((followingId) => String(followingId) === String(authorId));
   const activeUsers = activeList === 'followers' ? user.followers || [] : user.following || [];
   const activeTitle = activeList === 'followers' ? 'Followers' : 'Following';
 
@@ -161,14 +190,19 @@ export default function ProfilePage() {
             <p>@{user.username}</p>
           </div>
           {!isOwnProfile ? (
-            <button
-              className={isFollowing ? 'secondary-btn' : 'primary-btn'}
-              onClick={() => handleFollowToggle(user._id, user.username)}
-              disabled={!!followBusyIds[user._id]}
-              aria-busy={!!followBusyIds[user._id]}
-            >
-              {!!followBusyIds[user._id] ? <><LoadingSpinner size={14} /> Loading...</> : isFollowing ? 'Unfollow' : 'Follow'}
-            </button>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                className={isFollowing ? 'secondary-btn' : 'primary-btn'}
+                onClick={() => handleFollowToggle(user._id, user.username)}
+                disabled={!!followBusyIds[user._id]}
+                aria-busy={!!followBusyIds[user._id]}
+              >
+                {!!followBusyIds[user._id] ? <><LoadingSpinner size={14} /> Loading...</> : isFollowing ? 'Unfollow' : 'Follow'}
+              </button>
+              <Link to={`/messages/${user._id}`} className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <FiMessageSquare /> Message
+              </Link>
+            </div>
           ) : (
             <button className="primary-btn" onClick={() => setEditing(!editing)}>{editing ? 'Cancel' : 'Edit profile'}</button>
           )}
@@ -202,48 +236,22 @@ export default function ProfilePage() {
         <FeedSkeleton />
       ) : posts.length ? (
         posts.map((post) => (
-          <article key={post._id} className="feed-card">
-            <div className="post-header">
-              <div className="user-row">
-                <img src={post.author?.avatar} alt="avatar" className="avatar" />
-                <div>
-                  <h3><Link to={`/profile/${post.author?.username}`}>{post.author?.fullname}</Link></h3>
-                  <p><Link to={`/profile/${post.author?.username}`}>@{post.author?.username}</Link></p>
-                </div>
-              </div>
-              {!isOwnProfile && authUser?._id !== post.author?._id && (
-                <button
-                  onClick={() => handleFollowToggle(post.author._id, post.author.username)}
-                  className={authUser?.following?.some((followingId) => String(followingId) === String(post.author._id)) ? 'secondary-btn' : 'accent-btn'}
-                  disabled={!!followBusyIds[post.author._id]}
-                  aria-busy={!!followBusyIds[post.author._id]}
-                >
-                  {authUser?.following?.some((followingId) => String(followingId) === String(post.author._id)) ? 'Unfollow' : 'Follow'}
-                </button>
-              )}
-            </div>
-            <img src={post.image || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1200&q=80'} alt="post" className="post-image" />
-            <div className="post-actions">
-              <button onClick={() => toggleLike(post._id)} disabled={postBusyIds[post._id] === 'like'} aria-busy={postBusyIds[post._id] === 'like'}>
-                {postBusyIds[post._id] === 'like' ? <LoadingSpinner size={14} /> : <FiHeart />} {post.likes?.length || 0}
-              </button>
-              <button disabled><FiMessageCircle /> {post.comments?.length || 0}</button>
-              <button onClick={() => toggleBookmark(post._id)} disabled={postBusyIds[post._id] === 'bookmark'} aria-busy={postBusyIds[post._id] === 'bookmark'}>
-                {postBusyIds[post._id] === 'bookmark' ? <LoadingSpinner size={14} /> : <FiBookmark />}
-              </button>
-              <button disabled><FiSend /></button>
-            </div>
-            <p className="caption">{post.caption}</p>
-            <div className="comment-box">
-              <input
-                placeholder="Add a comment"
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') addComment(post._id, event.target.value);
-                }}
-                disabled={postBusyIds[post._id] === 'comment'}
-              />
-            </div>
-          </article>
+          <PostCard
+            key={post._id}
+            post={post}
+            user={authUser}
+            isFollowing={isFollowingUser}
+            onFollowToggle={(authorId) => handleFollowToggle(authorId, post.author?.username)}
+            onToggleLike={toggleLike}
+            onToggleBookmark={toggleBookmark}
+            onToggleComments={toggleComments}
+            onAddComment={addComment}
+            expandedPostId={expandedCommentPostId}
+            commentDrafts={commentDrafts}
+            setCommentDrafts={setCommentDrafts}
+            busyIds={postBusyIds}
+            formatRelativeTime={formatRelativeTime}
+          />
         ))
       ) : (
         <div className="page-card empty-state">No posts yet.</div>

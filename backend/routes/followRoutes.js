@@ -1,5 +1,6 @@
 import express from 'express';
 import User from '../models/User.js';
+import Notification from '../models/Notification.js';
 import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -34,6 +35,20 @@ router.post('/:id', protect, async (req, res, next) => {
         User.updateOne({ _id: currentUserId }, { $addToSet: { following: targetUser._id } }),
         User.updateOne({ _id: targetUserId }, { $addToSet: { followers: currentUser._id } }),
       ]);
+
+      const existing = await Notification.findOne({
+        type: 'follow',
+        sender: currentUserId,
+        recipient: targetUserId,
+      });
+
+      if (!existing) {
+        await Notification.create({
+          type: 'follow',
+          sender: currentUserId,
+          recipient: targetUserId,
+        });
+      }
     } else {
       await Promise.all([
         User.updateOne({ _id: currentUserId }, { $pull: { following: targetUser._id } }),

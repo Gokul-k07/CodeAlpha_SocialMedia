@@ -1,6 +1,7 @@
 import express from 'express';
 import Post from '../models/Post.js';
 import User from '../models/User.js';
+import Notification from '../models/Notification.js';
 import { protect } from '../middleware/auth.js';
 import { buildUserLookupQuery } from '../utils/userLookup.js';
 
@@ -30,6 +31,44 @@ router.get('/', async (req, res, next) => {
 
     const total = await Post.countDocuments(filter);
     res.json({ posts, total, page, pages: Math.ceil(total / limit) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// @desc    Get user's bookmarked posts
+// @route   GET /api/posts/bookmarks
+// @access  Private
+router.get('/bookmarks', protect, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id).populate({
+      path: 'bookmarks',
+      populate: [
+        { path: 'author', select: 'username fullname avatar bio' },
+        { path: 'comments.author', select: 'username fullname avatar' },
+      ],
+    });
+
+    const posts = (user.bookmarks || [])
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    res.json({ posts });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:id', async (req, res, next) => {
+  try {
+    const post = await Post.findById(req.params.id)
+      .populate('author', 'username fullname avatar bio')
+      .populate('comments.author', 'username fullname avatar');
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+    res.json({ post });
   } catch (error) {
     next(error);
   }
@@ -81,6 +120,22 @@ router.post('/:id/like', protect, async (req, res, next) => {
       post.likes = post.likes.filter((id) => id.toString() !== req.user.id);
     } else {
       post.likes.push(req.user.id);
+      if (post.author.toString() !== req.user.id) {
+        const existing = await Notification.findOne({
+          type: 'like',
+          sender: req.user.id,
+          recipient: post.author,
+          post: post._id,
+        });
+        if (!existing) {
+          await Notification.create({
+            type: 'like',
+            sender: req.user.id,
+            recipient: post.author,
+            post: post._id,
+          });
+        }
+      }
     }
 
     await post.save();
@@ -96,6 +151,15 @@ router.post('/:id/comment', protect, async (req, res, next) => {
     if (!post) return res.status(404).json({ message: 'Post not found' });
 
     post.comments.push({ author: req.user.id, text: req.body.text });
+    if (post.author.toString() !== req.user.id) {
+      await Notification.create({
+        type: 'comment',
+        sender: req.user.id,
+        recipient: post.author,
+        post: post._id,
+      });
+    }
+
     await post.save();
     const populated = await Post.findById(post._id).populate('comments.author', 'username fullname avatar');
     res.status(201).json({ post: populated });

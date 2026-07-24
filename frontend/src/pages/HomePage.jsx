@@ -1,58 +1,143 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { FiHeart, FiMessageCircle, FiBookmark, FiSend, FiPlus, FiTrendingUp } from 'react-icons/fi';
+import { FiPlus, FiTrendingUp, FiRefreshCw } from 'react-icons/fi';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
 import LoadingSpinner from '../components/LoadingSpinner';
 import FeedSkeleton from '../components/skeletons/FeedSkeleton';
+import PostCard from '../components/PostCard';
 
 export default function HomePage() {
   const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [errorMore, setErrorMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+
   const [caption, setCaption] = useState('');
   const [suggested, setSuggested] = useState([]);
   const [busyIds, setBusyIds] = useState({});
   const [publishing, setPublishing] = useState(false);
+
   const { user, toggleFollow } = useAuth();
   const { addToast } = useToast();
 
-  const loadPosts = async () => {
-    try {
-      const res = await api.get('/posts');
-      setPosts(res.data.posts);
-    } catch {
-      addToast('Unable to load the feed right now.', 'error');
-    } finally {
-      setLoading(false);
-    }
+  const [expandedCommentPostId, setExpandedCommentPostId] = useState(null);
+  const [commentDrafts, setCommentDrafts] = useState({});
+
+  const isFetchingRef = useRef(false);
+  const observerTargetRef = useRef(null);
+
+  const formatRelativeTime = (dateString) => {
+    if (!dateString) return 'Just now';
+    const date = new Date(dateString);
+    const now = new Date();
+    const seconds = Math.round((now - date) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.round(hours / 24);
+    return `${days}d ago`;
   };
+
+  const fetchPage = useCallback(
+    async (targetPage, isInitial = false) => {
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
+
+      if (isInitial) {
+        setInitialLoading(true);
+      } else {
+        setLoadingMore(true);
+        setErrorMore(false);
+      }
+
+      try {
+        const res = await api.get(`/posts?page=${targetPage}&limit=6`);
+        const fetchedPosts = res.data.posts || [];
+        const totalPages = res.data.pages || 1;
+
+        setPosts((prev) => {
+          if (isInitial) return fetchedPosts;
+          const existingIds = new Set(prev.map((p) => p._id));
+          const uniqueNewPosts = fetchedPosts.filter((p) => !existingIds.has(p._id));
+          return [...prev, ...uniqueNewPosts];
+        });
+
+        setPage(targetPage);
+        setHasMore(targetPage < totalPages && fetchedPosts.length > 0);
+      } catch {
+        if (isInitial) {
+          addToast('Unable to load home feed.', 'error');
+        } else {
+          setErrorMore(true);
+        }
+      } finally {
+        isFetchingRef.current = false;
+        if (isInitial) {
+          setInitialLoading(false);
+        } else {
+          setLoadingMore(false);
+        }
+      }
+    },
+    [addToast]
+  );
+
+  useEffect(() => {
+    fetchPage(1, true);
+    loadSuggested();
+  }, [fetchPage]);
 
   const loadSuggested = async () => {
     try {
-      const res = await api.get('/search?q=al');
-      setSuggested(res.data.users.slice(0, 4));
+      const res = await api.get('/search?q=a');
+      setSuggested((res.data.users || []).slice(0, 4));
     } catch {
-      addToast('Unable to load suggested creators.', 'error');
+      // Quiet background failure
     }
   };
 
+  // IntersectionObserver for infinite scrolling
   useEffect(() => {
-    loadPosts();
-    loadSuggested();
-  }, []);
+    if (initialLoading || !hasMore || loadingMore || errorMore) return;
+
+    const target = observerTargetRef.current;
+    if (!target) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isFetchingRef.current) {
+          fetchPage(page + 1, false);
+        }
+      },
+      { threshold: 0.1, rootMargin: '200px' }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [initialLoading, hasMore, loadingMore, errorMore, page, fetchPage]);
 
   const handleCreatePost = async (e) => {
     e.preventDefault();
     if (!caption.trim() || publishing) return;
     setPublishing(true);
     try {
-      await api.post('/posts', { caption, image: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1200&q=80' });
+      const res = await api.post('/posts', {
+        caption,
+        image: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1200&q=80',
+      });
       setCaption('');
       addToast('Post published successfully.', 'success');
-      await loadPosts();
+      if (res.data.post) {
+        setPosts((prev) => [res.data.post, ...prev]);
+      }
     } catch {
-      addToast('Unable to publish the post.', 'error');
+      addToast('Unable to publish post.', 'error');
     } finally {
       setPublishing(false);
     }
@@ -62,8 +147,11 @@ export default function HomePage() {
     if (busyIds[postId]) return;
     setBusyIds((prev) => ({ ...prev, [postId]: 'like' }));
     try {
-      await api.post(`/posts/${postId}/like`);
-      await loadPosts();
+      const res = await api.post(`/posts/${postId}/like`);
+      const updated = res.data.post;
+      if (updated) {
+        setPosts((prev) => prev.map((p) => (p._id === postId ? { ...p, likes: updated.likes } : p)));
+      }
       addToast('Post liked', 'success');
     } catch {
       addToast('Unable to update like state.', 'error');
@@ -77,7 +165,6 @@ export default function HomePage() {
     setBusyIds((prev) => ({ ...prev, [postId]: 'bookmark' }));
     try {
       await api.post(`/posts/${postId}/bookmark`);
-      await loadPosts();
       addToast('Post saved', 'success');
     } catch {
       addToast('Unable to update bookmark.', 'error');
@@ -86,12 +173,17 @@ export default function HomePage() {
     }
   };
 
-  const addComment = async (postId, text) => {
-    if (!text.trim() || busyIds[postId]) return;
+  const addComment = async (postId) => {
+    const text = (commentDrafts[postId] || '').trim();
+    if (!text || busyIds[postId]) return;
     setBusyIds((prev) => ({ ...prev, [postId]: 'comment' }));
     try {
-      await api.post(`/posts/${postId}/comment`, { text });
-      await loadPosts();
+      const res = await api.post(`/posts/${postId}/comment`, { text });
+      const updatedPost = res.data.post;
+      if (updatedPost) {
+        setPosts((prev) => prev.map((post) => (post._id === postId ? { ...post, comments: updatedPost.comments } : post)));
+      }
+      setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
       addToast('Comment added', 'success');
     } catch {
       addToast('Unable to add comment.', 'error');
@@ -114,6 +206,7 @@ export default function HomePage() {
   };
 
   const isFollowing = (authorId) => user?.following?.includes(authorId);
+  const toggleComments = (postId) => setExpandedCommentPostId((prev) => (prev === postId ? null : postId));
 
   return (
     <div className="home-grid">
@@ -122,89 +215,103 @@ export default function HomePage() {
           <div className="composer-top">
             <img src={user?.avatar} alt="avatar" className="avatar" />
             <form onSubmit={handleCreatePost} className="composer-form">
-              <input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="What are you sharing today?" />
+              <input
+                value={caption}
+                onChange={(e) => setCaption(e.target.value)}
+                placeholder="What are you sharing today?"
+              />
               <button type="submit" className="primary-btn" disabled={publishing} aria-busy={publishing}>
-                {publishing ? <><LoadingSpinner size={14} className="white" /> Publishing...</> : 'Publish'}
+                {publishing ? (
+                  <>
+                    <LoadingSpinner size={14} className="white" /> Publishing...
+                  </>
+                ) : (
+                  'Publish'
+                )}
               </button>
             </form>
           </div>
         </div>
 
-        {loading ? (
+        {initialLoading ? (
           <FeedSkeleton />
         ) : (
-          posts.map((post) => (
-            <article key={post._id} className="feed-card">
-              <div className="post-header">
-                <div className="user-row">
-                  <img src={post.author?.avatar} alt="avatar" className="avatar" />
-                  <div>
-                    <h3><Link to={`/profile/${post.author?.username}`}>{post.author?.fullname}</Link></h3>
-                    <p><Link to={`/profile/${post.author?.username}`}>@{post.author?.username}</Link></p>
-                  </div>
-                </div>
-                {user?._id !== post.author?._id && (
-                  <button
-                    onClick={() => handleFollowToggle(post.author._id)}
-                    className={isFollowing(post.author._id) ? 'secondary-btn' : 'accent-btn'}
-                    disabled={busyIds[post.author._id] === 'follow'}
-                    aria-busy={busyIds[post.author._id] === 'follow'}
-                  >
-                    {isFollowing(post.author._id) ? 'Unfollow' : 'Follow'}
-                  </button>
-                )}
+          <>
+            {posts.map((post) => (
+              <PostCard
+                key={post._id}
+                post={post}
+                user={user}
+                isFollowing={isFollowing}
+                onFollowToggle={handleFollowToggle}
+                onToggleLike={toggleLike}
+                onToggleBookmark={toggleBookmark}
+                onToggleComments={toggleComments}
+                onAddComment={addComment}
+                expandedPostId={expandedCommentPostId}
+                commentDrafts={commentDrafts}
+                setCommentDrafts={setCommentDrafts}
+                busyIds={busyIds}
+                formatRelativeTime={formatRelativeTime}
+              />
+            ))}
+
+            {/* Sentinel for IntersectionObserver */}
+            <div ref={observerTargetRef} className="feed-bottom-sentinel" />
+
+            {/* Infinite Scroll Loaders & Indicators */}
+            {loadingMore && (
+              <div className="feed-infinite-loader">
+                <LoadingSpinner size={18} />
+                <span>Loading more posts...</span>
               </div>
-              <img src={post.image || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1200&q=80'} alt="post" className="post-image" />
-              <div className="post-actions">
-                <button onClick={() => toggleLike(post._id)} disabled={busyIds[post._id] === 'like'} aria-busy={busyIds[post._id] === 'like'}>
-                  {busyIds[post._id] === 'like' ? <LoadingSpinner size={14} /> : <FiHeart />} {post.likes?.length || 0}
+            )}
+
+            {errorMore && (
+              <div className="feed-infinite-error">
+                <span>Unable to load more posts.</span>
+                <button type="button" className="secondary-btn" onClick={() => fetchPage(page + 1, false)}>
+                  <FiRefreshCw /> Retry
                 </button>
-                <button disabled><FiMessageCircle /> {post.comments?.length || 0}</button>
-                <button onClick={() => toggleBookmark(post._id)} disabled={busyIds[post._id] === 'bookmark'} aria-busy={busyIds[post._id] === 'bookmark'}>
-                  {busyIds[post._id] === 'bookmark' ? <LoadingSpinner size={14} /> : <FiBookmark />}
-                </button>
-                <button disabled><FiSend /></button>
               </div>
-              <p className="caption">{post.caption}</p>
-              <div className="comment-box">
-                <input
-                  placeholder="Add a comment"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') addComment(post._id, e.target.value);
-                  }}
-                  disabled={busyIds[post._id] === 'comment'}
-                />
+            )}
+
+            {!hasMore && posts.length > 0 && (
+              <div className="feed-infinite-end">
+                <span>🎉 You've reached the end of the feed</span>
               </div>
-            </article>
-          ))
+            )}
+          </>
         )}
       </section>
 
       <aside className="sidebar-column">
         <div className="card">
-          <div className="card-title-row">
-            <h3>Trending</h3>
-            <FiTrendingUp />
+          <div className="card-title-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0 }}>Trending</h3>
+            <FiTrendingUp style={{ color: '#6366f1' }} />
           </div>
-          <ul className="list">
+          <ul className="list" style={{ listStyle: 'none', padding: 0, margin: '12px 0 0 0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <li>#DesignSystems</li>
             <li>#AIProduct</li>
             <li>#CreatorEconomy</li>
           </ul>
         </div>
         <div className="card">
-          <h3>Suggested creators</h3>
+          <h3 style={{ margin: '0 0 12px 0' }}>Suggested creators</h3>
           {suggested.map((item) => (
             <Link key={item._id} to={`/profile/${item.username}`} className="user-row spaced">
               <img src={item.avatar} alt="avatar" className="avatar" />
               <div>
                 <h4>{item.fullname}</h4>
-                <p>@{item.username}</p>
+                <p className="username">@{item.username}</p>
               </div>
             </Link>
           ))}
         </div>
-        <button className="fab"><FiPlus /></button>
+        <button type="button" className="fab" aria-label="Create Post">
+          <FiPlus />
+        </button>
       </aside>
     </div>
   );

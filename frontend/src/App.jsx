@@ -7,8 +7,16 @@ import ExplorePage from './pages/ExplorePage'
 import SearchPage from './pages/SearchPage'
 import ProfilePage from './pages/ProfilePage'
 import AdminPage from './pages/AdminPage'
+import PostDetailPage from './pages/PostDetailPage'
+import MessagesPage from './pages/MessagesPage'
+import NotificationsPage from './pages/NotificationsPage'
+import BookmarksPage from './pages/BookmarksPage'
+import SettingsPage from './pages/SettingsPage'
 import { ToastProvider } from './components/ToastProvider'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { NotificationsProvider } from './context/NotificationContext'
+import { MessagesProvider } from './context/MessageContext'
+import { ThemeProvider } from './context/ThemeContext'
 import './App.css'
 
 function ProtectedRoute({ children }) {
@@ -29,6 +37,12 @@ function AppRoutes() {
           <Route path="/explore" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><ExplorePage /></motion.div>} />
           <Route path="/search" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><SearchPage /></motion.div>} />
           <Route path="/profile/:username" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><ProfilePage /></motion.div>} />
+          <Route path="/post/:id" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><PostDetailPage /></motion.div>} />
+          <Route path="/messages" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><MessagesPage /></motion.div>} />
+          <Route path="/messages/:userId" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><MessagesPage /></motion.div>} />
+          <Route path="/notifications" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><NotificationsPage /></motion.div>} />
+          <Route path="/bookmarks" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><BookmarksPage /></motion.div>} />
+          <Route path="/settings" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><SettingsPage /></motion.div>} />
           <Route path="/admin" element={<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><AdminPage /></motion.div>} />
         </Route>
         <Route path="*" element={<div className="page-card">404 · This page does not exist.</div>} />
@@ -39,12 +53,18 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <ToastProvider>
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
-      </ToastProvider>
-    </AuthProvider>
+    <BrowserRouter>
+      <ThemeProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <NotificationsProvider>
+              <MessagesProvider>
+                <AppRoutes />
+              </MessagesProvider>
+            </NotificationsProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    </BrowserRouter>
   )
 }
