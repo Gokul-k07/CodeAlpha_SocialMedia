@@ -6,7 +6,7 @@ export const useTheme = () => useContext(ThemeContext);
 
 export function ThemeProvider({ children }) {
   const [theme, setThemeState] = useState(() => {
-    return localStorage.getItem('novasocial-theme') || 'system';
+    return localStorage.getItem('GOsocial-theme') || 'system';
   });
 
   const [effectiveTheme, setEffectiveTheme] = useState('light');
@@ -22,7 +22,7 @@ export function ThemeProvider({ children }) {
 
   const setTheme = (newTheme) => {
     setThemeState(newTheme);
-    localStorage.setItem('novasocial-theme', newTheme);
+    localStorage.setItem('GOsocial-theme', newTheme);
     updateEffectiveTheme(newTheme);
   };
 

@@ -19,7 +19,6 @@ export default function HomePage() {
 
   const [caption, setCaption] = useState('');
   const [suggested, setSuggested] = useState([]);
-  const [busyIds, setBusyIds] = useState({});
   const [publishing, setPublishing] = useState(false);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
 
@@ -145,8 +144,6 @@ export default function HomePage() {
   };
 
   const toggleLike = async (postId) => {
-    if (busyIds[postId]) return;
-    setBusyIds((prev) => ({ ...prev, [postId]: 'like' }));
     try {
       const res = await api.post(`/posts/${postId}/like`);
       const updated = res.data.post;
@@ -156,28 +153,21 @@ export default function HomePage() {
       addToast('Post liked', 'success');
     } catch {
       addToast('Unable to update like state.', 'error');
-    } finally {
-      setBusyIds((prev) => ({ ...prev, [postId]: null }));
     }
   };
 
   const toggleBookmark = async (postId) => {
-    if (busyIds[postId]) return;
-    setBusyIds((prev) => ({ ...prev, [postId]: 'bookmark' }));
     try {
       await api.post(`/posts/${postId}/bookmark`);
       addToast('Post saved', 'success');
     } catch {
       addToast('Unable to update bookmark.', 'error');
-    } finally {
-      setBusyIds((prev) => ({ ...prev, [postId]: null }));
     }
   };
 
   const addComment = async (postId) => {
     const text = (commentDrafts[postId] || '').trim();
-    if (!text || busyIds[postId]) return;
-    setBusyIds((prev) => ({ ...prev, [postId]: 'comment' }));
+    if (!text) return;
     try {
       const res = await api.post(`/posts/${postId}/comment`, { text });
       const updatedPost = res.data.post;
@@ -188,21 +178,15 @@ export default function HomePage() {
       addToast('Comment added', 'success');
     } catch {
       addToast('Unable to add comment.', 'error');
-    } finally {
-      setBusyIds((prev) => ({ ...prev, [postId]: null }));
     }
   };
 
   const handleFollowToggle = async (authorId) => {
-    if (busyIds[authorId]) return;
-    setBusyIds((prev) => ({ ...prev, [authorId]: 'follow' }));
     try {
       const res = await toggleFollow(authorId);
       addToast(res.following ? 'User followed' : 'User unfollowed', 'success');
     } catch {
       addToast('Could not update follow status.', 'error');
-    } finally {
-      setBusyIds((prev) => ({ ...prev, [authorId]: null }));
     }
   };
 
@@ -270,7 +254,6 @@ export default function HomePage() {
                 expandedPostId={expandedCommentPostId}
                 commentDrafts={commentDrafts}
                 setCommentDrafts={setCommentDrafts}
-                busyIds={busyIds}
                 formatRelativeTime={formatRelativeTime}
               />
             ))}

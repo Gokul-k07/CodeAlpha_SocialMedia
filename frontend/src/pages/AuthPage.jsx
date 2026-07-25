@@ -37,7 +37,7 @@ export default function AuthPage() {
           addToast(res.message || 'Please enter the 6-digit 2FA code sent to your email.', 'info');
           return;
         }
-        addToast('Welcome back to NovaSocial', 'success');
+        addToast('Welcome back to GOsocial', 'success');
         navigate('/');
       } else {
         await register(form);
@@ -55,7 +55,7 @@ export default function AuthPage() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-hero">
-          <div className="brand">NovaSocial</div>
+          <div className="brand">GOsocial</div>
           <h1>Share moments. Build connections.</h1>
           <p>A polished social platform for creators, founders, and communities.</p>
         </div>

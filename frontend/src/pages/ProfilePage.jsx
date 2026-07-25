@@ -302,7 +302,7 @@ export default function ProfilePage() {
 
   const handleLogout = async () => {
     await logout();
-    addToast('Logged out of NovaSocial.', 'info');
+    addToast('Logged out of GOsocial.', 'info');
     navigate('/login');
   };
 
@@ -498,6 +498,56 @@ export default function ProfilePage() {
         ))
       ) : (
         <div className="page-card empty-state">No posts yet.</div>
+      )}
+
+      {/* Followers / Following Modal */}
+      {activeList && (
+        <div className="modal-backdrop" onClick={() => setActiveList(null)}>
+          <div className="composer-modal-card" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{activeList === 'followers' ? 'Followers' : 'Following'}</h3>
+              <button type="button" className="modal-close" onClick={() => setActiveList(null)}>
+                <FiX />
+              </button>
+            </div>
+            <div className="search-results-picker" style={{ maxHeight: '400px', padding: '8px 4px' }}>
+              {(() => {
+                const listData = activeList === 'followers' ? (user.followers || []) : (user.following || []);
+                if (!listData.length) {
+                  return (
+                    <p style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      {activeList === 'followers' ? 'No followers yet.' : 'Not following anyone yet.'}
+                    </p>
+                  );
+                }
+                return listData.map((u) => {
+                  const uId = u?._id || u;
+                  const uUsername = u?.username || '';
+                  const uFullname = u?.fullname || uUsername;
+                  const uAvatar = u?.avatar || '';
+                  if (!uUsername) return null;
+                  return (
+                    <div key={String(uId)} className="picker-row" onClick={() => { setActiveList(null); navigate(`/profile/${uUsername}`); }} style={{ cursor: 'pointer' }}>
+                      <img src={uAvatar} alt="avatar" className="avatar" style={{ width: 40, height: 40 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{uFullname}</strong>
+                        <small style={{ color: 'var(--text-muted)' }}>@{uUsername}</small>
+                      </div>
+                      <Link
+                        to={`/profile/${uUsername}`}
+                        className="secondary-btn"
+                        style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+                        onClick={(e) => { e.stopPropagation(); setActiveList(null); }}
+                      >
+                        View
+                      </Link>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Share Profile in Message Modal */}

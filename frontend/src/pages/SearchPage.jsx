@@ -102,7 +102,7 @@ export default function SearchPage() {
         <h2>
           <FiSearch className="search-header-icon" /> Search Creators
         </h2>
-        <p>Find and connect with creators on NovaSocial</p>
+        <p>Find and connect with creators on GOsocial</p>
 
         <div className="search-input-wrapper">
           <FiSearch className="search-left-icon" />
@@ -140,7 +140,7 @@ export default function SearchPage() {
         ) : !query.trim() ? (
           <div className="page-card search-empty-state">
             <FiSearch size={40} className="empty-search-icon" />
-            <h3>Search NovaSocial Creators</h3>
+            <h3>Search GOsocial Creators</h3>
             <p>Enter a username or display name above to discover creators and profiles.</p>
           </div>
         ) : results.length === 0 ? (

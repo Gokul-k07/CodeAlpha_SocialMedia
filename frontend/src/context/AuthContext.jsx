@@ -49,7 +49,7 @@ export function AuthProvider({ children }) {
       // Quiet fail
     } finally {
       setUser(null);
-      localStorage.removeItem('novasocial-token');
+      localStorage.removeItem('GOsocial-token');
     }
   };
 

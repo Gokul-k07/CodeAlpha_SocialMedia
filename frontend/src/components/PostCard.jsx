@@ -100,7 +100,6 @@ export default function PostCard({
   expandedPostId,
   commentDrafts,
   setCommentDrafts,
-  busyIds,
   formatRelativeTime,
 }) {
   const isExpanded = expandedPostId === post._id;
@@ -110,6 +109,7 @@ export default function PostCard({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedDocForAction, setSelectedDocForAction] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [localBusy, setLocalBusy] = useState(null); // 'like', 'bookmark', 'comment', 'follow'
 
   const navigate = useNavigate();
   const { addToast } = useToast();
@@ -135,7 +135,7 @@ export default function PostCard({
     } else {
       if (navigator.share) {
         navigator.share({
-          title: `Post by ${post.author?.fullname || 'NovaSocial'}`,
+          title: `Post by ${post.author?.fullname || 'GOsocial'}`,
           text: post.caption,
           url: getPostUrl(),
         }).catch(() => {});
@@ -190,95 +190,105 @@ export default function PostCard({
   return (
     <article className="feed-card">
       <div className="post-header">
-        <div className="user-row">
-          <img src={post.author?.avatar} alt="avatar" className="avatar" />
-          <div>
-            <h3>
-              <Link to={`/profile/${post.author?.username}`}>{post.author?.fullname}</Link>
-            </h3>
-            <p>
-              <Link to={`/profile/${post.author?.username}`}>@{post.author?.username}</Link>
-            </p>
+        {/* Single full-width user-row: avatar+name on left, buttons on right */}
+        <div className="user-row post-header-row">
+          {/* Left: Avatar + name block */}
+          <div className="user-row-identity">
+            <Link to={`/profile/${post.author?.username}`}>
+              <img src={post.author?.avatar} alt="avatar" className="avatar" />
+            </Link>
+            <div>
+              <h3>
+                <Link to={`/profile/${post.author?.username}`}>{post.author?.fullname}</Link>
+              </h3>
+              <p>
+                <Link to={`/profile/${post.author?.username}`}>@{post.author?.username}</Link>
+              </p>
+            </div>
           </div>
-        </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
-          {!isAuthor && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onFollowToggle(post.author._id);
-              }}
-              className={isFollowing(post.author._id) ? 'secondary-btn follow-action-btn' : 'primary-btn follow-action-btn'}
-              disabled={busyIds[post.author._id] === 'follow'}
-              aria-busy={busyIds[post.author._id] === 'follow'}
-            >
-              {busyIds[post.author._id] === 'follow' ? <LoadingSpinner size={14} /> : isFollowing(post.author._id) ? 'Unfollow' : 'Follow'}
-            </button>
-          )}
+          {/* Right: Follow button (non-authors) + 3-dot options */}
+          <div className="post-header-actions">
+            {!isAuthor && (
+              <button
+                type="button"
+                onClick={async (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (localBusy) return;
+                  setLocalBusy('follow');
+                  await onFollowToggle(post.author._id);
+                  setLocalBusy(null);
+                }}
+                className={isFollowing(post.author._id) ? 'secondary-btn follow-action-btn' : 'primary-btn follow-action-btn'}
+                disabled={localBusy === 'follow'}
+                aria-busy={localBusy === 'follow'}
+              >
+                {localBusy === 'follow' ? <LoadingSpinner size={14} /> : isFollowing(post.author._id) ? 'Unfollow' : 'Follow'}
+              </button>
+            )}
 
-          {/* 3-Dots Post Options Dropdown */}
-          <div className="options-dropdown-wrapper">
-            <button
-              type="button"
-              className="ghost-btn icon-only-btn"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setShowOptionsMenu((prev) => !prev);
-              }}
-              aria-label="Post options"
-              title="Options"
-              disabled={deleting}
-            >
-              {deleting ? <LoadingSpinner size={14} /> : <FiMoreVertical size={18} />}
-            </button>
+            {/* 3-Dot Options — anchored INSIDE user-row to avoid nav-bar clipping */}
+            <div className="options-dropdown-wrapper">
+              <button
+                type="button"
+                className="ghost-btn icon-only-btn"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowOptionsMenu((prev) => !prev);
+                }}
+                aria-label="Post options"
+                title="Options"
+                disabled={deleting}
+              >
+                {deleting ? <LoadingSpinner size={14} /> : <FiMoreVertical size={18} />}
+              </button>
 
-            {showOptionsMenu && (
-              <div className="share-popover options-popover" onClick={(e) => e.stopPropagation()}>
-                {isAuthor ? (
-                  <>
-                    {canEdit && (
+              {showOptionsMenu && (
+                <div className="share-popover options-popover" onClick={(e) => e.stopPropagation()}>
+                  {isAuthor ? (
+                    <>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          className="share-popover-option"
+                          onClick={() => {
+                            setShowOptionsMenu(false);
+                            setIsEditModalOpen(true);
+                          }}
+                        >
+                          <FiEdit2 /> Edit Post <small style={{ opacity: 0.6, fontSize: '0.75rem' }}>(3h window)</small>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="share-popover-option danger-option"
+                        onClick={handleDeletePost}
+                      >
+                        <FiTrash2 /> Delete Post
+                      </button>
+                    </>
+                  ) : (
+                    <>
                       <button
                         type="button"
                         className="share-popover-option"
                         onClick={() => {
                           setShowOptionsMenu(false);
-                          setIsEditModalOpen(true);
+                          onFollowToggle(post.author._id);
                         }}
                       >
-                        <FiEdit2 /> Edit Post (3h limit)
+                        {isFollowing(post.author._id) ? <><FiUserCheck /> Unfollow creator</> : <><FiUserPlus /> Follow creator</>}
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      className="share-popover-option danger-option"
-                      onClick={handleDeletePost}
-                    >
-                      <FiTrash2 /> Delete Post (Anytime)
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="share-popover-option"
-                      onClick={() => {
-                        setShowOptionsMenu(false);
-                        onFollowToggle(post.author._id);
-                      }}
-                    >
-                      {isFollowing(post.author._id) ? <><FiUserCheck /> Unfollow creator</> : <><FiUserPlus /> Follow creator</>}
-                    </button>
-                    <button type="button" className="share-popover-option" onClick={handleCopyLink}>
-                      <FiCopy /> Copy share link
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
+                      <button type="button" className="share-popover-option" onClick={handleCopyLink}>
+                        <FiCopy /> Copy share link
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -336,15 +346,18 @@ export default function PostCard({
         <button
           type="button"
           className="post-action-btn"
-          onClick={(e) => {
+          onClick={async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            onToggleLike(post._id);
+            if (localBusy) return;
+            setLocalBusy('like');
+            await onToggleLike(post._id);
+            setLocalBusy(null);
           }}
-          disabled={busyIds[post._id] === 'like'}
-          aria-busy={busyIds[post._id] === 'like'}
+          disabled={localBusy === 'like'}
+          aria-busy={localBusy === 'like'}
         >
-          {busyIds[post._id] === 'like' ? <LoadingSpinner size={14} /> : <FiHeart />}
+          {localBusy === 'like' ? <LoadingSpinner size={14} /> : <FiHeart />}
           <span>{post.likes?.length || 0}</span>
         </button>
 
@@ -366,15 +379,18 @@ export default function PostCard({
         <button
           type="button"
           className="post-action-btn"
-          onClick={(e) => {
+          onClick={async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            onToggleBookmark(post._id);
+            if (localBusy) return;
+            setLocalBusy('bookmark');
+            await onToggleBookmark(post._id);
+            setLocalBusy(null);
           }}
-          disabled={busyIds[post._id] === 'bookmark'}
-          aria-busy={busyIds[post._id] === 'bookmark'}
+          disabled={localBusy === 'bookmark'}
+          aria-busy={localBusy === 'bookmark'}
         >
-          {busyIds[post._id] === 'bookmark' ? <LoadingSpinner size={14} /> : <FiBookmark />}
+          {localBusy === 'bookmark' ? <LoadingSpinner size={14} /> : <FiBookmark />}
         </button>
 
         <div className="share-popover-wrapper">
@@ -414,25 +430,31 @@ export default function PostCard({
               onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post._id]: e.target.value }))}
               placeholder="Write a comment..."
               aria-label="Write a comment"
-              disabled={busyIds[post._id] === 'comment'}
-              onKeyDown={(e) => {
+              disabled={localBusy === 'comment'}
+              onKeyDown={async (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  onAddComment(post._id);
+                  if (localBusy) return;
+                  setLocalBusy('comment');
+                  await onAddComment(post._id);
+                  setLocalBusy(null);
                 }
               }}
             />
             <button
               type="button"
               className="primary-btn comment-send"
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.preventDefault();
-                onAddComment(post._id);
+                if (localBusy) return;
+                setLocalBusy('comment');
+                await onAddComment(post._id);
+                setLocalBusy(null);
               }}
-              disabled={busyIds[post._id] === 'comment' || !(commentDrafts[post._id] || '').trim()}
-              aria-busy={busyIds[post._id] === 'comment'}
+              disabled={localBusy === 'comment' || !(commentDrafts[post._id] || '').trim()}
+              aria-busy={localBusy === 'comment'}
             >
-              {busyIds[post._id] === 'comment' ? <LoadingSpinner size={14} /> : 'Send'}
+              {localBusy === 'comment' ? <LoadingSpinner size={14} /> : 'Send'}
             </button>
           </div>
 
@@ -440,7 +462,9 @@ export default function PostCard({
             {post.comments?.length ? (
               post.comments.map((comment) => (
                 <div key={comment._id} className="comment-item">
-                  <img src={comment.author?.avatar} alt="avatar" className="comment-avatar" />
+                  <Link to={`/profile/${comment.author?.username}`}>
+                    <img src={comment.author?.avatar} alt="avatar" className="comment-avatar" />
+                  </Link>
                   <div className="comment-body">
                     <div className="comment-author">
                       <strong>{comment.author?.fullname || 'Unknown'}</strong>

@@ -116,7 +116,7 @@ export default function SettingsPage() {
 
   const handleLogout = async () => {
     await logout();
-    addToast('Logged out of NovaSocial.', 'info');
+    addToast('Logged out of GOsocial.', 'info');
     navigate('/login');
   };
 
@@ -136,7 +136,7 @@ export default function SettingsPage() {
         </h3>
         <div className="card">
           <p style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-            Choose how NovaSocial looks to you. Select a light, dark, or system theme.
+            Choose how GOsocial looks to you. Select a light, dark, or system theme.
           </p>
           <div className="theme-options-grid">
             <button
@@ -294,7 +294,7 @@ export default function SettingsPage() {
                 className="search-input-field"
                 style={{ height: '42px' }}
               >
-                <option value="anyone">🌐 Anyone on NovaSocial</option>
+                <option value="anyone">🌐 Anyone on GOsocial</option>
                 <option value="followers">🔒 Only accounts who follow me</option>
               </select>
             </div>
@@ -351,7 +351,7 @@ export default function SettingsPage() {
         </h3>
         <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <strong>Log out of NovaSocial</strong>
+            <strong>Log out of GOsocial</strong>
             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
               End your active session on this device securely
             </p>

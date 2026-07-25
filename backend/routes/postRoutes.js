@@ -248,7 +248,8 @@ router.post('/:id/like', protect, async (req, res, next) => {
     }
 
     await post.save();
-    res.json({ post });
+    // Return only the fields needed for a local update (no full populate to keep it fast)
+    res.json({ post: { _id: post._id, likes: post.likes } });
   } catch (error) {
     next(error);
   }
@@ -302,7 +303,7 @@ router.post('/:id/bookmark', protect, async (req, res, next) => {
       user.bookmarks.push(req.params.id);
     }
     await user.save();
-    res.json({ bookmarks: user.bookmarks });
+    res.json({ bookmarked: !bookmarked, postId: req.params.id, bookmarks: user.bookmarks });
   } catch (error) {
     next(error);
   }

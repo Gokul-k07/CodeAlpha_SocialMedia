@@ -268,10 +268,10 @@ export default function PostComposerModal({ isOpen, onClose, onPostCreated }) {
               <button
                 type="button"
                 className="tool-btn"
-                onClick={() => handleAddHashtag('#NovaSocial')}
-                title="Add #NovaSocial hashtag"
+                onClick={() => handleAddHashtag('#GOsocial')}
+                title="Add #GOsocial hashtag"
               >
-                <FiHash /> <span>#NovaSocial</span>
+                <FiHash /> <span>#GOsocial</span>
               </button>
             </div>
 

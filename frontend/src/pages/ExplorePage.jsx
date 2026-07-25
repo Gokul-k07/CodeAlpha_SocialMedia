@@ -141,7 +141,7 @@ export default function ExplorePage() {
     <div className="explore-page-container">
       {/* Integrated Explore Header with Search */}
       <div className="explore-header-card">
-        <h2>Explore NovaSocial</h2>
+        <h2>Explore GOsocial</h2>
         <form onSubmit={handleSearchSubmit} className="explore-search-bar">
           <FiSearch className="search-icon" size={20} />
           <input
@@ -224,26 +224,28 @@ export default function ExplorePage() {
           {(activeTab === 'all' || activeTab === 'posts' || activeTab === 'hashtags') && (
             <section className="explore-posts-section">
               {filteredPosts.length > 0 ? (
-                filteredPosts.map((post) => (
-                  <PostCard
-                    key={post._id}
-                    post={post}
-                    user={user}
-                    isFollowing={isFollowing}
-                    onFollowToggle={handleFollowToggle}
-                    onToggleLike={toggleLike}
-                    onToggleBookmark={toggleBookmark}
-                    onToggleComments={toggleComments}
-                    onAddComment={addComment}
-                    onPostUpdated={handlePostUpdated}
-                    onPostDeleted={handlePostDeleted}
-                    expandedPostId={expandedCommentPostId}
-                    commentDrafts={commentDrafts}
-                    setCommentDrafts={setCommentDrafts}
-                    busyIds={busyIds}
-                    formatRelativeTime={(d) => new Date(d).toLocaleDateString()}
-                  />
-                ))
+                <div className="explore-posts-grid">
+                  {filteredPosts.map((post) => (
+                    <PostCard
+                      key={post._id}
+                      post={post}
+                      user={user}
+                      isFollowing={isFollowing}
+                      onFollowToggle={handleFollowToggle}
+                      onToggleLike={toggleLike}
+                      onToggleBookmark={toggleBookmark}
+                      onToggleComments={toggleComments}
+                      onAddComment={addComment}
+                      onPostUpdated={handlePostUpdated}
+                      onPostDeleted={handlePostDeleted}
+                      expandedPostId={expandedCommentPostId}
+                      commentDrafts={commentDrafts}
+                      setCommentDrafts={setCommentDrafts}
+                      busyIds={busyIds}
+                      formatRelativeTime={(d) => new Date(d).toLocaleDateString()}
+                    />
+                  ))}
+                </div>
               ) : (
                 <div className="page-card empty-state">No matching posts found. Try searching for a different keyword or #hashtag.</div>
               )}

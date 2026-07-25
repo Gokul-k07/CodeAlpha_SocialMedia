@@ -23,7 +23,7 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
-  if (loading) return <div className="loading">Loading NovaSocial...</div>
+  if (loading) return <div className="loading">Loading GOsocial...</div>
   return user ? children : <Navigate to="/auth" replace />
 }
 
