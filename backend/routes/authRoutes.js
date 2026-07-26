@@ -13,9 +13,11 @@ const buildToken = (user) =>
   jwt.sign({ id: user._id.toString(), role: user.role }, process.env.JWT_SECRET || 'devsecret', { expiresIn: '7d' });
 
 const setAuthCookie = (res, token) => {
+  const isProd = process.env.NODE_ENV === 'production';
   res.cookie('token', token, {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: isProd ? 'none' : 'lax',
+    secure: isProd,
     path: '/',
     maxAge: 1000 * 60 * 60 * 24 * 7,
   });

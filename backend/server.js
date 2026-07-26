@@ -20,19 +20,26 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 8000;
+const frontendUrl = process.env.FRONTEND_URL;
 const allowedOrigins = [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/];
 
 app.use(helmet());
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.some((pattern) => pattern.test(origin))) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error('CORS origin not allowed'));
-  },
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        allowedOrigins.some((pattern) => pattern.test(origin)) ||
+        (frontendUrl && (origin === frontendUrl || origin === frontendUrl.replace(/\/$/, '')))
+      ) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('CORS origin not allowed'));
+    },
+    credentials: true,
+  })
+);
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan('dev'));
@@ -52,7 +59,7 @@ app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/', apiLimiter);
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, message: 'NovaSocial backend is running' }));
+app.get('/api/health', (_req, res) => res.json({ success: true, message: 'GOsocial API is running' }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/posts', postRoutes);
