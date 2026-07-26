@@ -116,12 +116,12 @@ export default function MessagesPage() {
   }, [addToast, refreshUnreadCount]);
 
   useEffect(() => {
-    loadConversations(true);
+    Promise.resolve().then(() => loadConversations(true));
   }, [loadConversations]);
 
   useEffect(() => {
     if (activeUserId) {
-      loadMessages(activeUserId, true);
+      Promise.resolve().then(() => loadMessages(activeUserId, true));
     } else {
       setMessages([]);
       setPartner(null);

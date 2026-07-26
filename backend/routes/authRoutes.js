@@ -1,9 +1,11 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import User from '../models/User.js';
 import { getLoginIdentifier, getTokenFromRequest } from '../utils/auth.js';
 import { protect } from '../middleware/auth.js';
+import { sendPasswordResetEmail } from '../services/emailService.js';
 
 const router = express.Router();
 
@@ -199,69 +201,126 @@ router.post('/2fa/confirm', protect, async (req, res, next) => {
   }
 });
 
-// @desc    Request Password Reset 6-Digit OTP
+// @desc    Request Password Reset (Brevo SMTP Email Link & 6-Digit OTP)
 // @route   POST /api/auth/forgot-password
 // @access  Public
 router.post('/forgot-password', async (req, res, next) => {
   try {
     const email = (req.body.email || '').trim().toLowerCase();
-    if (!email) return res.status(400).json({ message: 'Please enter your account email address.' });
+    if (!email) return res.status(400).json({ message: 'Please enter a valid account email address.' });
+
+    const genericMessage = 'If an account with that email exists, a password reset link has been sent.';
 
     const user = await User.findOne({ email });
+
+    // Always return generic message to prevent account enumeration
     if (!user) {
-      // Return neutral response to prevent account enumeration attacks
-      return res.json({ message: 'If an account exists for that email, a 6-digit OTP code has been sent.' });
+      return res.json({ message: genericMessage });
     }
 
+    // 1. Generate cryptographically secure random reset token
+    const rawToken = crypto.randomBytes(32).toString('hex');
+
+    // 2. Hash token using SHA-256 for MongoDB storage
+    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    // 3. Generate secondary 6-digit OTP for manual entry option
     const otp = generate6DigitOtp();
+
+    // 4. Save hashed token and expiration (15 minutes)
+    const expirationDate = new Date(Date.now() + 15 * 60 * 1000);
+    user.passwordResetToken = hashedToken;
+    user.passwordResetExpires = expirationDate;
     user.resetPasswordOtp = otp;
-    user.resetPasswordOtpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+    user.resetPasswordOtpExpires = expirationDate;
     await user.save();
 
-    console.log(`[SECURITY PASSWORD RESET OTP] Sent Password Reset OTP to ${email}: ${otp}`);
+    // 5. Construct full frontend reset URL with unhashed raw token
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const resetUrl = `${frontendUrl}/reset-password/${rawToken}`;
 
-    res.json({ message: 'If an account exists for that email, a 6-digit OTP code has been sent.' });
+    // 6. Send email via Brevo SMTP
+    try {
+      await sendPasswordResetEmail({
+        email: user.email,
+        name: user.fullname,
+        resetUrl,
+      });
+    } catch (emailError) {
+      console.error('[SMTP ERROR] Failed to deliver password reset email via Brevo:', emailError.message);
+      // Clean up token on email failure
+      user.passwordResetToken = null;
+      user.passwordResetExpires = null;
+      user.resetPasswordOtp = null;
+      user.resetPasswordOtpExpires = null;
+      await user.save();
+      return res.status(500).json({ message: 'Unable to send password reset email. Please try again later.' });
+    }
+
+    res.json({ message: genericMessage });
   } catch (error) {
     next(error);
   }
 });
 
-// @desc    Reset Password with 6-Digit OTP
+// @desc    Reset Password with Token or 6-Digit OTP
 // @route   POST /api/auth/reset-password
 // @access  Public
 router.post('/reset-password', async (req, res, next) => {
   try {
-    const email = (req.body.email || '').trim().toLowerCase();
-    const otp = (req.body.otp || '').trim();
-    const newPassword = req.body.newPassword;
+    const { token, otp, email } = req.body;
+    const newPassword = req.body.newPassword || req.body.password;
 
-    if (!email || !otp || !newPassword) {
-      return res.status(400).json({ message: 'Email, 6-digit OTP, and new password are required.' });
+    if (!newPassword) {
+      return res.status(400).json({ message: 'New password is required.' });
     }
 
     if (newPassword.length < 6) {
       return res.status(400).json({ message: 'New password must be at least 6 characters long.' });
     }
 
-    const user = await User.findOne({ email });
-    if (!user || !user.resetPasswordOtp) {
-      return res.status(400).json({ message: 'Invalid request or expired OTP code.' });
+    let user = null;
+
+    if (token) {
+      // Hash the received raw token to match against database
+      const hashedToken = crypto.createHash('sha256').update(String(token).trim()).digest('hex');
+      user = await User.findOne({
+        passwordResetToken: hashedToken,
+        passwordResetExpires: { $gt: new Date() },
+      });
+
+      if (!user) {
+        return res.status(400).json({ message: 'Password reset link is invalid or has expired. Please request a new one.' });
+      }
+    } else if (otp && email) {
+      const cleanEmail = (email || '').trim().toLowerCase();
+      user = await User.findOne({ email: cleanEmail });
+
+      if (!user || !user.resetPasswordOtp) {
+        return res.status(400).json({ message: 'Invalid 6-digit OTP or request.' });
+      }
+
+      if (new Date() > new Date(user.resetPasswordOtpExpires)) {
+        user.resetPasswordOtp = null;
+        user.resetPasswordOtpExpires = null;
+        await user.save();
+        return res.status(400).json({ message: 'OTP code has expired. Please request a new code.' });
+      }
+
+      if (user.resetPasswordOtp !== String(otp).trim()) {
+        return res.status(400).json({ message: 'Invalid 6-digit OTP code.' });
+      }
+    } else {
+      return res.status(400).json({ message: 'Valid reset token or OTP code is required.' });
     }
 
-    if (new Date() > new Date(user.resetPasswordOtpExpires)) {
-      user.resetPasswordOtp = null;
-      user.resetPasswordOtpExpires = null;
-      await user.save();
-      return res.status(400).json({ message: 'OTP code has expired. Please request a new code.' });
-    }
-
-    if (user.resetPasswordOtp !== otp) {
-      return res.status(400).json({ message: 'Invalid 6-digit OTP code.' });
-    }
-
-    // Hash new password and clear OTP immediately
+    // Hash new password using bcrypt
     const hashed = await bcrypt.hash(newPassword, 10);
     user.password = hashed;
+
+    // Single-use: clear reset tokens and expiry dates
+    user.passwordResetToken = null;
+    user.passwordResetExpires = null;
     user.resetPasswordOtp = null;
     user.resetPasswordOtpExpires = null;
     await user.save();

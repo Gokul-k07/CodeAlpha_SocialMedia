@@ -19,6 +19,8 @@ const userSchema = new mongoose.Schema(
     twoFactorOtpExpires: { type: Date, default: null },
     resetPasswordOtp: { type: String, default: null },
     resetPasswordOtpExpires: { type: Date, default: null },
+    passwordResetToken: { type: String, default: null },
+    passwordResetExpires: { type: Date, default: null },
     whoCanMessageMe: { type: String, enum: ['anyone', 'followers'], default: 'anyone' },
     whoCanFollowMe: { type: String, enum: ['anyone', 'approval'], default: 'anyone' },
     emailNotifications: { type: Boolean, default: true },

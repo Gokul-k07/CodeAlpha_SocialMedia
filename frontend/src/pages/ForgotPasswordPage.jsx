@@ -1,58 +1,31 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { FiLock, FiMail, FiCheckCircle, FiArrowLeft, FiShield } from 'react-icons/fi';
+import { Link } from 'react-router-dom';
+import { FiMail, FiArrowLeft, FiShield, FiCheckCircle } from 'react-icons/fi';
 import api from '../services/api';
 import { useToast } from '../components/ToastProvider';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function ForgotPasswordPage() {
-  const [step, setStep] = useState(1); // 1: Email Request | 2: Enter OTP & New Password
   const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const { addToast } = useToast();
-  const navigate = useNavigate();
 
-  const handleRequestOtp = async (e) => {
+  const handleRequestResetLink = async (e) => {
     e.preventDefault();
-    if (!email.trim()) return;
+    if (!email.trim() || loading) return;
 
     setLoading(true);
     try {
       const res = await api.post('/auth/forgot-password', { email: email.trim() });
-      addToast(res.data.message || '6-digit OTP sent to your email.', 'success');
-      setStep(2);
+      const msg = res.data.message || 'If an account with that email exists, you will receive a password reset link shortly.';
+      setSuccessMessage(msg);
+      setSubmitted(true);
+      addToast(msg, 'info');
     } catch (err) {
-      addToast(err.response?.data?.message || 'Unable to request password reset.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResetPassword = async (e) => {
-    e.preventDefault();
-    if (!otp.trim() || !newPassword) return;
-
-    if (newPassword !== confirmPassword) {
-      addToast('Passwords do not match.', 'error');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await api.post('/auth/reset-password', {
-        email: email.trim(),
-        otp: otp.trim(),
-        newPassword,
-      });
-
-      addToast(res.data.message || 'Password reset successfully! Please sign in.', 'success');
-      navigate('/login');
-    } catch (err) {
-      addToast(err.response?.data?.message || 'Password reset failed.', 'error');
+      addToast(err.response?.data?.message || 'Unable to process password reset request. Please try again.', 'error');
     } finally {
       setLoading(false);
     }
@@ -61,29 +34,60 @@ export default function ForgotPasswordPage() {
   return (
     <div className="auth-page">
       <div className="auth-card" style={{ maxWidth: '520px', gridTemplateColumns: '1fr' }}>
-        <div className="auth-hero" style={{ textAlign: 'center', padding: '24px' }}>
-          <FiShield size={44} style={{ color: '#6366f1', marginBottom: '12px' }} />
-          <h2>Password Recovery</h2>
+        <div className="auth-hero" style={{ textAlign: 'center', padding: '28px 24px 16px 24px' }}>
+          <FiShield size={48} style={{ color: 'var(--primary)', marginBottom: '12px' }} />
+          <h2 style={{ fontSize: '1.6rem', fontWeight: 700, margin: '0 0 8px 0' }}>Forgot Password</h2>
           <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-            {step === 1
-              ? 'Enter your registered email address to receive a secure 6-digit OTP code.'
-              : 'Enter the 6-digit OTP code sent to your email and your new password.'}
+            Enter your registered email address to receive a secure password reset link via Brevo.
           </p>
         </div>
 
-        {step === 1 ? (
-          <form onSubmit={handleRequestOtp} className="auth-form">
+        {submitted ? (
+          <div className="auth-form" style={{ textAlign: 'center', gap: '20px' }}>
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--input-border)', borderRadius: '16px', padding: '24px' }}>
+              <FiCheckCircle size={42} style={{ color: 'var(--success)', marginBottom: '12px' }} />
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '1.15rem' }}>Check Your Email</h3>
+              <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                {successMessage}
+              </p>
+            </div>
+
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
+              Didn't receive an email? Check your spam folder or click below to try again.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => {
+                  setSubmitted(false);
+                  setSuccessMessage('');
+                }}
+              >
+                Resend Reset Link
+              </button>
+
+              <Link to="/login" className="back-link" style={{ fontSize: '0.9rem', justifyContent: 'center' }}>
+                <FiArrowLeft /> Return to Sign In
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleRequestResetLink} className="auth-form">
             <div className="form-group">
-              <label>Email Address</label>
+              <label htmlFor="email">Email Address</label>
               <div className="messages-search-bar" style={{ background: 'var(--input-bg)' }}>
                 <FiMail style={{ color: 'var(--text-muted)' }} />
                 <input
+                  id="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@domain.com"
                   required
                   autoFocus
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -91,75 +95,15 @@ export default function ForgotPasswordPage() {
             <button type="submit" className="primary-btn" disabled={loading} aria-busy={loading}>
               {loading ? (
                 <>
-                  <LoadingSpinner size={14} className="white" /> Sending OTP...
+                  <LoadingSpinner size={16} /> Sending Reset Link...
                 </>
               ) : (
-                'Send 6-Digit OTP'
+                'Send Password Reset Link'
               )}
             </button>
 
             <div style={{ textAlign: 'center', marginTop: '12px' }}>
-              <Link to="/login" className="back-link" style={{ fontSize: '0.88rem' }}>
-                <FiArrowLeft /> Back to Sign In
-              </Link>
-            </div>
-          </form>
-        ) : (
-          <form onSubmit={handleResetPassword} className="auth-form">
-            <div className="form-group">
-              <label>6-Digit OTP Code</label>
-              <input
-                type="text"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-                placeholder="123456"
-                maxLength={6}
-                className="composer-textarea"
-                style={{ height: '46px', textAlign: 'center', letterSpacing: '4px', fontSize: '1.2rem', fontWeight: 700 }}
-                required
-                autoFocus
-              />
-            </div>
-
-            <div className="form-group">
-              <label>New Password</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="At least 6 characters"
-                minLength={6}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Confirm New Password</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Re-enter new password"
-                minLength={6}
-                required
-              />
-            </div>
-
-            <button type="submit" className="primary-btn" disabled={loading} aria-busy={loading}>
-              {loading ? (
-                <>
-                  <LoadingSpinner size={14} className="white" /> Resetting Password...
-                </>
-              ) : (
-                'Reset Password'
-              )}
-            </button>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
-              <button type="button" className="ghost-btn" onClick={() => setStep(1)} style={{ fontSize: '0.85rem' }}>
-                Resend Code
-              </button>
-              <Link to="/login" className="back-link" style={{ fontSize: '0.88rem' }}>
+              <Link to="/login" className="back-link" style={{ fontSize: '0.88rem', justifyContent: 'center' }}>
                 <FiArrowLeft /> Back to Sign In
               </Link>
             </div>
