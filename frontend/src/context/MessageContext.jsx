@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext';
 
 const MessageContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useMessages = () => useContext(MessageContext);
 
 export function MessagesProvider({ children }) {
@@ -14,9 +15,9 @@ export function MessagesProvider({ children }) {
     if (!user) return;
     try {
       const res = await api.get('/messages/unread-count');
-      setUnreadCount(res.data.count);
+      setUnreadCount(res.data.count ?? 0);
     } catch {
-      // Quiet fail during background poll
+      // Quiet fail during background check
     }
   }, [user]);
 
@@ -29,15 +30,36 @@ export function MessagesProvider({ children }) {
   }, [fetchUnreadCount]);
 
   useEffect(() => {
-    if (user) {
-      fetchUnreadCount();
-      const interval = setInterval(() => {
-        if (!document.hidden) {
-          fetchUnreadCount();
-        }
-      }, 3000);
-      return () => clearInterval(interval);
+    if (!user) {
+      Promise.resolve().then(() => setUnreadCount(0));
+      return;
     }
+
+    // 1. Initial fetch on login
+    Promise.resolve().then(() => fetchUnreadCount());
+
+    // 2. Event-driven updates on window focus / tab visibility
+    const handleFocusOrVisible = () => {
+      if (!document.hidden) {
+        fetchUnreadCount();
+      }
+    };
+
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+
+    // 3. Fallback poll (every 45 seconds instead of 3 seconds)
+    const fallbackInterval = setInterval(() => {
+      if (!document.hidden) {
+        fetchUnreadCount();
+      }
+    }, 45000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+      clearInterval(fallbackInterval);
+    };
   }, [user, fetchUnreadCount]);
 
   const value = {

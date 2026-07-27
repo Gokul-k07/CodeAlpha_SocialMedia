@@ -21,6 +21,61 @@ import ConversationListSkeleton from '../components/skeletons/ConversationListSk
 import MessageSkeleton from '../components/skeletons/MessageSkeleton';
 import MessageAttachmentModal from '../components/MessageAttachmentModal';
 import DocumentActionModal from '../components/DocumentActionModal';
+import ImageLightboxModal from '../components/ImageLightboxModal';
+
+const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+const IMAGE_EXT_REGEX = /\.(jpg|jpeg|png|gif|webp|avif)($|\?)/i;
+
+function renderMessageTextWithLinks(text, onOpenImage) {
+  if (!text) return null;
+
+  const parts = text.split(URL_REGEX);
+  const detectedPhotoUrls = [];
+
+  const elements = parts.map((part, idx) => {
+    if (part.match(URL_REGEX)) {
+      const href = part.toLowerCase().startsWith('www.') ? `http://${part}` : part;
+      if (IMAGE_EXT_REGEX.test(part)) {
+        if (!detectedPhotoUrls.includes(part)) {
+          detectedPhotoUrls.push(part);
+        }
+      }
+      return (
+        <a
+          key={idx}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="msg-text-link"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {part}
+        </a>
+      );
+    }
+    return part;
+  });
+
+  return (
+    <>
+      <p className="msg-text">{elements}</p>
+      {detectedPhotoUrls.length > 0 && (
+        <div className="msg-photo-urls-grid">
+          {detectedPhotoUrls.map((url, i) => (
+            <div
+              key={i}
+              className="msg-photo-url-preview"
+              onClick={() => onOpenImage(url)}
+              title="Click to view image"
+            >
+              <img src={url} alt="Photo URL preview" className="msg-photo-url-img" />
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
 export default function MessagesPage() {
   const { userId: activeUserId } = useParams();
@@ -47,6 +102,7 @@ export default function MessagesPage() {
   const [sharedPostDraft, setSharedPostDraft] = useState(null);
   const [isAttachModalOpen, setIsAttachModalOpen] = useState(false);
   const [selectedDocForAction, setSelectedDocForAction] = useState(null);
+  const [expandedImageUrl, setExpandedImageUrl] = useState(null);
 
   const messagesEndRef = useRef(null);
   const chatBodyRef = useRef(null);
@@ -123,22 +179,34 @@ export default function MessagesPage() {
     if (activeUserId) {
       Promise.resolve().then(() => loadMessages(activeUserId, true));
     } else {
-      setMessages([]);
-      setPartner(null);
+      Promise.resolve().then(() => {
+        setMessages([]);
+        setPartner(null);
+      });
     }
   }, [activeUserId, loadMessages]);
 
-  // Polling for new messages (every 2.5s)
+  // Event-driven & low-frequency fallback refresh for messages
   useEffect(() => {
-    const interval = setInterval(() => {
+    const handleFocusOrVisible = () => {
       if (!document.hidden) {
         loadConversations(false);
         if (activeUserId && page === 1) {
           loadMessages(activeUserId, false);
         }
       }
-    }, 2500);
-    return () => clearInterval(interval);
+    };
+
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+
+    const interval = setInterval(handleFocusOrVisible, 15000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+      clearInterval(interval);
+    };
   }, [activeUserId, page, loadConversations, loadMessages]);
 
   useEffect(() => {
@@ -366,13 +434,20 @@ export default function MessagesPage() {
 
                       <div className={`msg-bubble ${isMine ? 'mine' : 'theirs'} ${isFailed ? 'failed-bubble' : ''}`}>
                         {/* Text */}
-                        {msg.text && <p className="msg-text">{msg.text}</p>}
+                        {renderMessageTextWithLinks(msg.text, setExpandedImageUrl)}
 
                         {/* Images Attachment */}
                         {msg.images?.length > 0 && (
                           <div className="msg-images-grid">
                             {msg.images.map((imgUrl, i) => (
-                              <img key={i} src={imgUrl} alt="attached media" className="msg-image-item" />
+                              <img
+                                key={i}
+                                src={imgUrl}
+                                alt="attached media"
+                                className="msg-image-item"
+                                onClick={() => setExpandedImageUrl(imgUrl)}
+                                style={{ cursor: 'pointer' }}
+                              />
                             ))}
                           </div>
                         )}
@@ -551,6 +626,12 @@ export default function MessagesPage() {
         document={selectedDocForAction}
         isOpen={!!selectedDocForAction}
         onClose={() => setSelectedDocForAction(null)}
+      />
+
+      {/* Image Lightbox Modal */}
+      <ImageLightboxModal
+        imageUrl={expandedImageUrl}
+        onClose={() => setExpandedImageUrl(null)}
       />
     </div>
   );

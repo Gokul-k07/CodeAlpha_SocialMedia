@@ -14,6 +14,7 @@ import {
   FiMoreVertical,
   FiUserCheck,
   FiUserPlus,
+  FiX,
 } from 'react-icons/fi';
 import api from '../services/api';
 import LoadingSpinner from './LoadingSpinner';
@@ -110,6 +111,9 @@ export default function PostCard({
   const [selectedDocForAction, setSelectedDocForAction] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [localBusy, setLocalBusy] = useState(null); // 'like', 'bookmark', 'comment', 'follow'
+  const [showShareMsgModal, setShowShareMsgModal] = useState(false);
+  const [conversations, setConversations] = useState([]);
+  const [sharingMsg, setSharingMsg] = useState(false);
 
   const navigate = useNavigate();
   const { addToast } = useToast();
@@ -125,6 +129,34 @@ export default function PostCard({
   }, [showShareMenu, showOptionsMenu]);
 
   const getPostUrl = () => `${window.location.origin}/post/${post._id}`;
+
+  const handleOpenShareInMessageModal = async () => {
+    setShowShareMenu(false);
+    setShowOptionsMenu(false);
+    setShowShareMsgModal(true);
+    try {
+      const res = await api.get('/messages/conversations');
+      setConversations(res.data.conversations || []);
+    } catch {
+      addToast('Unable to fetch conversation partners.', 'error');
+    }
+  };
+
+  const handleSendPostInMessage = async (targetPartnerId) => {
+    if (sharingMsg) return;
+    setSharingMsg(true);
+    try {
+      await api.post(`/messages/${targetPartnerId}`, {
+        sharedPost: post._id,
+      });
+      addToast('Shared post in chat!', 'success');
+      setShowShareMsgModal(false);
+    } catch {
+      addToast('Failed to share post in message.', 'error');
+    } finally {
+      setSharingMsg(false);
+    }
+  };
 
   const handleShareClick = (e) => {
     e.preventDefault();
@@ -182,6 +214,7 @@ export default function PostCard({
   };
 
   const isAuthor = String(user?._id) === String(post.author?._id);
+  // eslint-disable-next-line react-hooks/purity
   const postAgeMs = post.createdAt ? Date.now() - new Date(post.createdAt).getTime() : 0;
   const canEdit = isAuthor && postAgeMs <= 3 * 60 * 60 * 1000;
 
@@ -280,6 +313,9 @@ export default function PostCard({
                         }}
                       >
                         {isFollowing(post.author._id) ? <><FiUserCheck /> Unfollow creator</> : <><FiUserPlus /> Follow creator</>}
+                      </button>
+                      <button type="button" className="share-popover-option" onClick={handleOpenShareInMessageModal}>
+                        <FiSend /> Share in message
                       </button>
                       <button type="button" className="share-popover-option" onClick={handleCopyLink}>
                         <FiCopy /> Copy share link
@@ -406,6 +442,9 @@ export default function PostCard({
 
           {showShareMenu && (
             <div className="share-popover" onClick={(e) => e.stopPropagation()}>
+              <button type="button" className="share-popover-option" onClick={handleOpenShareInMessageModal}>
+                <FiSend /> Share in message
+              </button>
               <button type="button" className="share-popover-option" onClick={handleOpenNewWindow}>
                 <FiExternalLink /> Open in new window
               </button>
@@ -499,6 +538,48 @@ export default function PostCard({
         isOpen={!!selectedDocForAction}
         onClose={() => setSelectedDocForAction(null)}
       />
+
+      {/* Share Post in Message Modal */}
+      {showShareMsgModal && (
+        <div className="modal-backdrop" onClick={() => setShowShareMsgModal(false)}>
+          <div className="composer-modal-card" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Share Post in Chat</h3>
+              <button type="button" className="modal-close" onClick={() => setShowShareMsgModal(false)}>
+                <FiX />
+              </button>
+            </div>
+            <div className="composer-modal-form">
+              <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+                Select a conversation partner to send this post card to:
+              </p>
+              <div className="search-results-picker" style={{ maxHeight: '280px' }}>
+                {conversations.length > 0 ? (
+                  conversations.map((c) => (
+                    <div
+                      key={c._id}
+                      className="picker-row"
+                      onClick={() => handleSendPostInMessage(c.partner?._id)}
+                      style={{ cursor: sharingMsg ? 'not-allowed' : 'pointer' }}
+                    >
+                      <img src={c.partner?.avatar} alt="avatar" className="avatar" style={{ width: 36, height: 36 }} />
+                      <div style={{ flex: 1 }}>
+                        <strong>{c.partner?.fullname}</strong>
+                        <small style={{ display: 'block', color: 'var(--text-muted)' }}>@{c.partner?.username}</small>
+                      </div>
+                      <FiSend style={{ color: 'var(--primary)' }} />
+                    </div>
+                  ))
+                ) : (
+                  <p style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    No active chat conversations. Start a message first!
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </article>
   );
 }
