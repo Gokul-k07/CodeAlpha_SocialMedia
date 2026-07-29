@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   FiHeart,
@@ -26,7 +26,6 @@ import DocumentActionModal from './DocumentActionModal';
 function FormattedCaption({ text = '' }) {
   if (!text) return null;
 
-  // Regex for matching URLs, @mentions, #hashtags
   const tokenRegex = /(https?:\/\/[^\s]+|@[a-zA-Z0-9_.]+|#[a-zA-Z0-9_]+)/g;
   const parts = text.split(tokenRegex);
 
@@ -87,7 +86,8 @@ function formatFileSize(bytes = 0) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-export default function PostCard({
+// ─── PostCard wrapped in React.memo to prevent re-renders when unrelated posts update ───
+const PostCard = memo(function PostCard({
   post,
   user,
   isFollowing,
@@ -110,10 +110,15 @@ export default function PostCard({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedDocForAction, setSelectedDocForAction] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [localBusy, setLocalBusy] = useState(null); // 'like', 'bookmark', 'comment', 'follow'
   const [showShareMsgModal, setShowShareMsgModal] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [sharingMsg, setSharingMsg] = useState(false);
+
+  // ── Per-action keyed loading: { like: bool, bookmark: bool, comment: bool, follow: bool }
+  const [busy, setBusy] = useState({});
+  const setBusyAction = useCallback((action, value) => {
+    setBusy((prev) => ({ ...prev, [action]: value }));
+  }, []);
 
   const navigate = useNavigate();
   const { addToast } = useToast();
@@ -248,16 +253,16 @@ export default function PostCard({
                 onClick={async (e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  if (localBusy) return;
-                  setLocalBusy('follow');
+                  if (busy.follow) return;
+                  setBusyAction('follow', true);
                   await onFollowToggle(post.author._id);
-                  setLocalBusy(null);
+                  setBusyAction('follow', false);
                 }}
                 className={isFollowing(post.author._id) ? 'secondary-btn follow-action-btn' : 'primary-btn follow-action-btn'}
-                disabled={localBusy === 'follow'}
-                aria-busy={localBusy === 'follow'}
+                disabled={busy.follow}
+                aria-busy={busy.follow}
               >
-                {localBusy === 'follow' ? <LoadingSpinner size={14} /> : isFollowing(post.author._id) ? 'Unfollow' : 'Follow'}
+                {busy.follow ? <LoadingSpinner size={14} /> : isFollowing(post.author._id) ? 'Unfollow' : 'Follow'}
               </button>
             )}
 
@@ -385,15 +390,15 @@ export default function PostCard({
           onClick={async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (localBusy) return;
-            setLocalBusy('like');
+            if (busy.like) return;
+            setBusyAction('like', true);
             await onToggleLike(post._id);
-            setLocalBusy(null);
+            setBusyAction('like', false);
           }}
-          disabled={localBusy === 'like'}
-          aria-busy={localBusy === 'like'}
+          disabled={busy.like}
+          aria-busy={busy.like}
         >
-          {localBusy === 'like' ? <LoadingSpinner size={14} /> : <FiHeart />}
+          {busy.like ? <LoadingSpinner size={14} /> : <FiHeart />}
           <span>{post.likes?.length || 0}</span>
         </button>
 
@@ -418,15 +423,15 @@ export default function PostCard({
           onClick={async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (localBusy) return;
-            setLocalBusy('bookmark');
+            if (busy.bookmark) return;
+            setBusyAction('bookmark', true);
             await onToggleBookmark(post._id);
-            setLocalBusy(null);
+            setBusyAction('bookmark', false);
           }}
-          disabled={localBusy === 'bookmark'}
-          aria-busy={localBusy === 'bookmark'}
+          disabled={busy.bookmark}
+          aria-busy={busy.bookmark}
         >
-          {localBusy === 'bookmark' ? <LoadingSpinner size={14} /> : <FiBookmark />}
+          {busy.bookmark ? <LoadingSpinner size={14} /> : <FiBookmark />}
         </button>
 
         <div className="share-popover-wrapper">
@@ -469,14 +474,14 @@ export default function PostCard({
               onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post._id]: e.target.value }))}
               placeholder="Write a comment..."
               aria-label="Write a comment"
-              disabled={localBusy === 'comment'}
+              disabled={busy.comment}
               onKeyDown={async (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  if (localBusy) return;
-                  setLocalBusy('comment');
+                  if (busy.comment) return;
+                  setBusyAction('comment', true);
                   await onAddComment(post._id);
-                  setLocalBusy(null);
+                  setBusyAction('comment', false);
                 }
               }}
             />
@@ -485,15 +490,15 @@ export default function PostCard({
               className="primary-btn comment-send"
               onClick={async (e) => {
                 e.preventDefault();
-                if (localBusy) return;
-                setLocalBusy('comment');
+                if (busy.comment) return;
+                setBusyAction('comment', true);
                 await onAddComment(post._id);
-                setLocalBusy(null);
+                setBusyAction('comment', false);
               }}
-              disabled={localBusy === 'comment' || !(commentDrafts[post._id] || '').trim()}
-              aria-busy={localBusy === 'comment'}
+              disabled={busy.comment || !(commentDrafts[post._id] || '').trim()}
+              aria-busy={busy.comment}
             >
-              {localBusy === 'comment' ? <LoadingSpinner size={14} /> : 'Send'}
+              {busy.comment ? <LoadingSpinner size={14} /> : 'Send'}
             </button>
           </div>
 
@@ -582,4 +587,6 @@ export default function PostCard({
       )}
     </article>
   );
-}
+});
+
+export default PostCard;

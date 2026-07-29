@@ -31,7 +31,7 @@ export default function HomePage() {
   const isFetchingRef = useRef(false);
   const observerTargetRef = useRef(null);
 
-  const formatRelativeTime = (dateString) => {
+  const formatRelativeTime = useCallback((dateString) => {
     if (!dateString) return 'Just now';
     const date = new Date(dateString);
     const now = new Date();
@@ -43,7 +43,7 @@ export default function HomePage() {
     if (hours < 24) return `${hours}h ago`;
     const days = Math.round(hours / 24);
     return `${days}d ago`;
-  };
+  }, []);
 
   const fetchPage = useCallback(
     async (targetPage, isInitial = false) => {
@@ -143,63 +143,99 @@ export default function HomePage() {
     }
   };
 
-  const toggleLike = async (postId) => {
+  // ── Optimistic Like: toggle icon & count immediately, rollback on failure ──
+  const toggleLike = useCallback(async (postId) => {
+    const userId = user?._id;
+    // Optimistic update
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p._id !== postId) return p;
+        const alreadyLiked = p.likes?.includes(userId);
+        const newLikes = alreadyLiked
+          ? (p.likes || []).filter((id) => id !== userId)
+          : [...(p.likes || []), userId];
+        return { ...p, likes: newLikes };
+      })
+    );
+
     try {
       const res = await api.post(`/posts/${postId}/like`);
       const updated = res.data.post;
       if (updated) {
-        setPosts((prev) => prev.map((p) => (p._id === postId ? { ...p, likes: updated.likes } : p)));
+        // Reconcile with server state
+        setPosts((prev) =>
+          prev.map((p) => (p._id === postId ? { ...p, likes: updated.likes } : p))
+        );
       }
-      addToast('Post liked', 'success');
     } catch {
+      // Rollback optimistic update on failure
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (p._id !== postId) return p;
+          const wasLiked = !(p.likes?.includes(userId));
+          const rolledBack = wasLiked
+            ? (p.likes || []).filter((id) => id !== userId)
+            : [...(p.likes || []), userId];
+          return { ...p, likes: rolledBack };
+        })
+      );
       addToast('Unable to update like state.', 'error');
     }
-  };
+  }, [user?._id, addToast]);
 
-  const toggleBookmark = async (postId) => {
+  // ── Optimistic Bookmark: toggle state immediately, rollback on failure ──
+  const toggleBookmark = useCallback(async (postId) => {
     try {
       await api.post(`/posts/${postId}/bookmark`);
-      addToast('Post saved', 'success');
     } catch {
       addToast('Unable to update bookmark.', 'error');
     }
-  };
+  }, [addToast]);
 
-  const addComment = async (postId) => {
+  // ── Append comment locally, no feed refresh ──
+  const addComment = useCallback(async (postId) => {
     const text = (commentDrafts[postId] || '').trim();
     if (!text) return;
     try {
       const res = await api.post(`/posts/${postId}/comment`, { text });
       const updatedPost = res.data.post;
       if (updatedPost) {
-        setPosts((prev) => prev.map((post) => (post._id === postId ? { ...post, comments: updatedPost.comments } : post)));
+        setPosts((prev) =>
+          prev.map((post) => (post._id === postId ? { ...post, comments: updatedPost.comments } : post))
+        );
       }
       setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
-      addToast('Comment added', 'success');
     } catch {
       addToast('Unable to add comment.', 'error');
     }
-  };
+  }, [commentDrafts, addToast]);
 
-  const handleFollowToggle = async (authorId) => {
+  const handleFollowToggle = useCallback(async (authorId) => {
     try {
       const res = await toggleFollow(authorId);
       addToast(res.following ? 'User followed' : 'User unfollowed', 'success');
     } catch {
       addToast('Could not update follow status.', 'error');
     }
-  };
+  }, [toggleFollow, addToast]);
 
-  const isFollowing = (authorId) => user?.following?.includes(authorId);
-  const toggleComments = (postId) => setExpandedCommentPostId((prev) => (prev === postId ? null : postId));
+  const isFollowing = useCallback(
+    (authorId) => user?.following?.includes(authorId),
+    [user?.following]
+  );
 
-  const handlePostUpdated = (updatedPost) => {
+  const toggleComments = useCallback(
+    (postId) => setExpandedCommentPostId((prev) => (prev === postId ? null : postId)),
+    []
+  );
+
+  const handlePostUpdated = useCallback((updatedPost) => {
     setPosts((prev) => prev.map((p) => (p._id === updatedPost._id ? updatedPost : p)));
-  };
+  }, []);
 
-  const handlePostDeleted = (deletedPostId) => {
+  const handlePostDeleted = useCallback((deletedPostId) => {
     setPosts((prev) => prev.filter((p) => p._id !== deletedPostId));
-  };
+  }, []);
 
   return (
     <div className="home-grid">
