@@ -2269,3 +2269,193 @@ button:disabled { cursor: wait; opacity: 0.75; }
   .profile-header { flex-direction: column; align-items: flex-start; } 
   .theme-options-grid { grid-template-columns: 1fr; } 
 }
+
+/* ============================================================
+   FIREBASE AUTH UI — Google Sign-In, Divider, Email Verify
+   ============================================================ */
+
+/* ── Auth Divider ──────────────────────────────────────────── */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--card-border);
+}
+
+/* ── Google Sign-In Button ─────────────────────────────────── */
+.google-signin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: 12px;
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text-main);
+  font-size: 0.925rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  position: relative;
+  overflow: hidden;
+}
+
+.google-signin-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--btn-ghost-hover);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: inherit;
+}
+
+.google-signin-btn:hover:not(:disabled)::before {
+  opacity: 1;
+}
+
+.google-signin-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.12);
+}
+
+.google-signin-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.google-signin-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.google-signin-btn svg,
+.google-signin-btn span {
+  position: relative;
+  z-index: 1;
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .google-signin-btn {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+  color: var(--text-main);
+}
+
+[data-theme="dark"] .google-signin-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+/* ── Email Verification Card ───────────────────────────────── */
+.verify-email-card {
+  max-width: 480px;
+  text-align: center;
+}
+
+.verify-email-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.12), rgba(139, 92, 246, 0.15));
+  margin: 0 auto 20px;
+  border: 2px solid rgba(79, 70, 229, 0.2);
+}
+
+.verify-email-icon {
+  font-size: 2rem;
+  color: var(--primary);
+  animation: gentle-bounce 2.5s ease-in-out infinite;
+}
+
+@keyframes gentle-bounce {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-4px); }
+}
+
+/* Status row */
+.verify-email-status {
+  background: var(--input-bg);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin: 16px 0;
+  border: 1px solid var(--card-border);
+}
+
+.verify-poll-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.verify-checking-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: var(--primary);
+  font-weight: 500;
+}
+
+/* Pulsing green dot */
+.verify-pulse-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1);   opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+  50%       { transform: scale(1.2); opacity: 0.9; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+}
+
+.verify-poll-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Actions column */
+.verify-email-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+/* Bottom hint */
+.verify-email-hint {
+  margin-top: 16px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+

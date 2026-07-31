@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import { getLoginIdentifier, getTokenFromRequest } from '../utils/auth.js';
 import { protect } from '../middleware/auth.js';
 import { sendPasswordResetEmail } from '../services/emailService.js';
+import { verifyFirebaseMiddleware, findOrCreateMongoUser } from '../middleware/firebaseAuth.js';
 
 const router = express.Router();
 
@@ -330,6 +331,47 @@ router.post('/reset-password', async (req, res, next) => {
     res.json({ success: true, message: 'Password has been reset successfully. Please sign in with your new password.' });
   } catch (error) {
     next(error);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Firebase Authentication Exchange
+// @route   POST /api/auth/firebase
+// @access  Public
+//
+// Accepts a Firebase ID token from the frontend, verifies it server-side using
+// Firebase Admin SDK, then finds or creates the MongoDB user, and issues the
+// existing application JWT — exactly as local login does.
+//
+// This is the ONLY Firebase-specific route. All other routes remain untouched.
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/firebase', verifyFirebaseMiddleware, async (req, res, next) => {
+  try {
+    const decoded = req.firebaseDecoded;
+
+    // Require email verification for email/password Firebase users.
+    // Google Sign-In users are always considered verified by Google.
+    const isGoogleProvider = decoded.firebase?.sign_in_provider?.includes('google');
+    if (!isGoogleProvider && !decoded.email_verified) {
+      return res.status(403).json({
+        requiresEmailVerification: true,
+        message: 'Please verify your email address before signing in.',
+      });
+    }
+
+    // Find existing MongoDB user or create a new one from Firebase profile.
+    const user = await findOrCreateMongoUser(decoded);
+
+    // Issue the existing application JWT.
+    const token = buildToken(user);
+    setAuthCookie(res, token);
+
+    res.json({
+      user: { ...user.toObject(), password: undefined },
+      token,
+    });
+  } catch (err) {
+    next(err);
   }
 });
 
