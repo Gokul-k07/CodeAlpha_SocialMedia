@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { FiPlus, FiTrendingUp, FiRefreshCw, FiPaperclip } from 'react-icons/fi';
 import api from '../services/api';
@@ -26,6 +26,7 @@ export default function HomePage() {
   const { addToast } = useToast();
 
   const [expandedCommentPostId, setExpandedCommentPostId] = useState(null);
+  // commentDrafts: { [postId]: string } — updated surgically via onCommentDraftChange
   const [commentDrafts, setCommentDrafts] = useState({});
 
   const isFetchingRef = useRef(false);
@@ -92,7 +93,7 @@ export default function HomePage() {
   useEffect(() => {
     fetchPage(1, true);
     loadSuggested();
-  }, [fetchPage]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadSuggested = async () => {
     try {
@@ -134,6 +135,7 @@ export default function HomePage() {
       setCaption('');
       addToast('Post published successfully.', 'success');
       if (res.data.post) {
+        // Prepend new post — never re-fetch the feed
         setPosts((prev) => [res.data.post, ...prev]);
       }
     } catch (err) {
@@ -200,10 +202,12 @@ export default function HomePage() {
       const res = await api.post(`/posts/${postId}/comment`, { text });
       const updatedPost = res.data.post;
       if (updatedPost) {
+        // Only update the single post that received the comment
         setPosts((prev) =>
           prev.map((post) => (post._id === postId ? { ...post, comments: updatedPost.comments } : post))
         );
       }
+      // Clear only this post's draft
       setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
     } catch {
       addToast('Unable to add comment.', 'error');
@@ -219,9 +223,16 @@ export default function HomePage() {
     }
   }, [toggleFollow, addToast]);
 
-  const isFollowing = useCallback(
-    (authorId) => user?.following?.includes(authorId),
+  // ── isFollowing: memoized on a Set derived from user.following ───────────────
+  // Using a Set prevents identity changes on every AuthContext update.
+  // The Set only rebuilds when the list of following IDs actually changes.
+  const followingSet = useMemo(
+    () => new Set(user?.following || []),
     [user?.following]
+  );
+  const isFollowing = useCallback(
+    (authorId) => followingSet.has(String(authorId)),
+    [followingSet]
   );
 
   const toggleComments = useCallback(
@@ -229,12 +240,23 @@ export default function HomePage() {
     []
   );
 
+  // ── handlePostUpdated: replaces only the edited post in local state ──────────
+  // EditPostModal calls this with the server's response — never re-fetches feed.
   const handlePostUpdated = useCallback((updatedPost) => {
     setPosts((prev) => prev.map((p) => (p._id === updatedPost._id ? updatedPost : p)));
   }, []);
 
+  // ── handlePostDeleted: removes only the deleted post from local state ────────
+  // Called by PostCard after DELETE /posts/:id succeeds — never re-fetches feed.
   const handlePostDeleted = useCallback((deletedPostId) => {
     setPosts((prev) => prev.filter((p) => p._id !== deletedPostId));
+  }, []);
+
+  // ── onCommentDraftChange: surgically updates only one post's draft ───────────
+  // Stable callback — PostCard receives this once and it never changes identity.
+  // When post A types, only post A's commentDraft string changes, not the entire map.
+  const handleCommentDraftChange = useCallback((postId, value) => {
+    setCommentDrafts((prev) => ({ ...prev, [postId]: value }));
   }, []);
 
   return (
@@ -288,8 +310,10 @@ export default function HomePage() {
                 onPostUpdated={handlePostUpdated}
                 onPostDeleted={handlePostDeleted}
                 expandedPostId={expandedCommentPostId}
-                commentDrafts={commentDrafts}
-                setCommentDrafts={setCommentDrafts}
+                // Each PostCard receives only ITS OWN draft string (not the full map).
+                // When post A's draft changes, only post A re-renders — not the entire feed.
+                commentDraft={commentDrafts[post._id] || ''}
+                onCommentDraftChange={handleCommentDraftChange}
                 formatRelativeTime={formatRelativeTime}
               />
             ))}

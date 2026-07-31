@@ -10,7 +10,7 @@ export default function MessageAttachmentModal({
   onAddDocument,
   onShareProfile,
   onSharePost,
-  onAddHashtag,
+  
 }) {
   const [activeTab, setActiveTab] = useState('menu'); // 'menu' | 'images' | 'docs' | 'profiles' | 'posts'
   const [imageUrlDraft, setImageUrlDraft] = useState('');
@@ -25,49 +25,47 @@ export default function MessageAttachmentModal({
   if (!isOpen) return null;
 
   const handleDocumentUpload = (e) => {
-    const files = Array.from(e.target.files || []);
-    files.forEach((file) => {
-      if (file.size > 5 * 1024 * 1024) {
-        addToast(`File ${file.name} exceeds 5MB limit.`, 'error');
-        return;
-      }
-      const ext = file.name.split('.').pop().toLowerCase();
-      const allowed = ['pdf', 'doc', 'docx'];
-      if (!allowed.includes(ext)) {
-        addToast('Only PDF, DOC, and DOCX files are allowed.', 'error');
-        return;
-      }
-      const fileUrl = URL.createObjectURL(file);
-      onAddDocument({
-        name: file.name,
-        fileUrl,
-        fileType: ext,
-        fileSize: file.size,
-      });
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      addToast(`File ${file.name} exceeds 5MB limit.`, 'error');
+      return;
+    }
+    const ext = file.name.split('.').pop().toLowerCase();
+    const allowed = ['pdf', 'doc', 'docx'];
+    if (!allowed.includes(ext)) {
+      addToast('Only PDF, DOC, and DOCX files are allowed.', 'error');
+      return;
+    }
+    const fileUrl = URL.createObjectURL(file);
+    onAddDocument({
+      name: file.name,
+      fileUrl,
+      fileType: ext,
+      fileSize: file.size,
     });
     if (docInputRef.current) docInputRef.current.value = '';
     onClose();
   };
 
   const handleDeviceImageUpload = (e) => {
-    const files = Array.from(e.target.files || []);
-    files.forEach((file) => {
-      if (!file.type.startsWith('image/')) {
-        addToast('Please select image files.', 'error');
-        return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      addToast('Please select image files.', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      addToast(`Image ${file.name} exceeds 5MB limit.`, 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        onAddImage(event.target.result);
       }
-      if (file.size > 5 * 1024 * 1024) {
-        addToast(`Image ${file.name} exceeds 5MB limit.`, 'error');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          onAddImage(event.target.result);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    };
+    reader.readAsDataURL(file);
     if (imageFileInputRef.current) imageFileInputRef.current.value = '';
     onClose();
   };
@@ -149,7 +147,7 @@ export default function MessageAttachmentModal({
               accept=".pdf,.doc,.docx"
               style={{ display: 'none' }}
               onChange={handleDocumentUpload}
-              multiple
+
             />
 
             <button

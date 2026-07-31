@@ -86,6 +86,28 @@ function formatFileSize(bytes = 0) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
+// ── Invisible overlay — clicking it closes an open popover ──────────────────
+// This replaces the global window.addEventListener('click', ...) pattern.
+// No event propagation issues, no global listeners, no race conditions.
+function PopoverOverlay({ onClose }) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 90,
+        background: 'transparent',
+      }}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }}
+      aria-hidden="true"
+    />
+  );
+}
+
 // ─── PostCard wrapped in React.memo to prevent re-renders when unrelated posts update ───
 const PostCard = memo(function PostCard({
   post,
@@ -99,8 +121,9 @@ const PostCard = memo(function PostCard({
   onPostUpdated,
   onPostDeleted,
   expandedPostId,
-  commentDrafts,
-  setCommentDrafts,
+  // commentDraft (string) for THIS post only — not the entire map
+  commentDraft,
+  onCommentDraftChange,
   formatRelativeTime,
 }) {
   const isExpanded = expandedPostId === post._id;
@@ -112,9 +135,10 @@ const PostCard = memo(function PostCard({
   const [deleting, setDeleting] = useState(false);
   const [showShareMsgModal, setShowShareMsgModal] = useState(false);
   const [conversations, setConversations] = useState([]);
+  const [loadingConversations, setLoadingConversations] = useState(false);
   const [sharingMsg, setSharingMsg] = useState(false);
 
-  // ── Per-action keyed loading: { like: bool, bookmark: bool, comment: bool, follow: bool }
+  // ── Per-action keyed loading: { like, bookmark, comment, follow }
   const [busy, setBusy] = useState({});
   const setBusyAction = useCallback((action, value) => {
     setBusy((prev) => ({ ...prev, [action]: value }));
@@ -123,37 +147,45 @@ const PostCard = memo(function PostCard({
   const navigate = useNavigate();
   const { addToast } = useToast();
 
+  // ── Lazily fetch conversations ONLY when the Share-in-Message modal opens ──
+  // This is NOT triggered by the button click — it runs reactively after the
+  // modal is shown. The click handler itself does zero network calls.
   useEffect(() => {
-    if (!showShareMenu && !showOptionsMenu) return;
-    const handleClickOutside = () => {
-      setShowShareMenu(false);
-      setShowOptionsMenu(false);
-    };
-    window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
-  }, [showShareMenu, showOptionsMenu]);
+    if (!showShareMsgModal) return;
+
+    let cancelled = false;
+    setLoadingConversations(true);
+    setConversations([]);
+
+    api.get('/messages/conversations')
+      .then((res) => {
+        if (!cancelled) setConversations(res.data.conversations || []);
+      })
+      .catch(() => {
+        if (!cancelled) addToast('Unable to fetch conversation partners.', 'error');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingConversations(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [showShareMsgModal, addToast]);
 
   const getPostUrl = () => `${window.location.origin}/post/${post._id}`;
 
-  const handleOpenShareInMessageModal = async () => {
+  // ── Share-in-Message: ONLY local state — NO network call on click ──────────
+  const handleOpenShareInMessageModal = () => {
     setShowShareMenu(false);
     setShowOptionsMenu(false);
     setShowShareMsgModal(true);
-    try {
-      const res = await api.get('/messages/conversations');
-      setConversations(res.data.conversations || []);
-    } catch {
-      addToast('Unable to fetch conversation partners.', 'error');
-    }
+    // Conversations are fetched by the useEffect above when showShareMsgModal becomes true
   };
 
   const handleSendPostInMessage = async (targetPartnerId) => {
     if (sharingMsg) return;
     setSharingMsg(true);
     try {
-      await api.post(`/messages/${targetPartnerId}`, {
-        sharedPost: post._id,
-      });
+      await api.post(`/messages/${targetPartnerId}`, { sharedPost: post._id });
       addToast('Shared post in chat!', 'success');
       setShowShareMsgModal(false);
     } catch {
@@ -163,11 +195,13 @@ const PostCard = memo(function PostCard({
     }
   };
 
+  // ── Share button: ONLY local state on click ───────────────────────────────
   const handleShareClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
     const isDesktop = window.innerWidth >= 768;
     if (isDesktop) {
+      setShowOptionsMenu(false); // close options if open
       setShowShareMenu((prev) => !prev);
     } else {
       if (navigator.share) {
@@ -183,6 +217,14 @@ const PostCard = memo(function PostCard({
     }
   };
 
+  // ── 3-dot button: ONLY local state on click ───────────────────────────────
+  const handleOptionsClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setShowShareMenu(false); // close share if open
+    setShowOptionsMenu((prev) => !prev);
+  };
+
   const handleOpenNewWindow = () => {
     setShowShareMenu(false);
     window.open(getPostUrl(), '_blank', 'noopener,noreferrer');
@@ -194,8 +236,9 @@ const PostCard = memo(function PostCard({
     navigate(`/post/${post._id}`);
   };
 
-  const handleCopyLink = () => {
-    setShowShareMenu(false);
+  const handleCopyLink = (fromOptions = false) => {
+    if (fromOptions) setShowOptionsMenu(false);
+    else setShowShareMenu(false);
     navigator.clipboard.writeText(getPostUrl());
     addToast('Post link copied to clipboard!', 'success');
   };
@@ -208,9 +251,8 @@ const PostCard = memo(function PostCard({
     try {
       await api.delete(`/posts/${post._id}`);
       addToast('Post deleted successfully', 'success');
-      if (onPostDeleted) {
-        onPostDeleted(post._id);
-      }
+      // Local filter — never re-fetches the feed
+      if (onPostDeleted) onPostDeleted(post._id);
     } catch {
       addToast('Unable to delete post.', 'error');
     } finally {
@@ -219,18 +261,29 @@ const PostCard = memo(function PostCard({
   };
 
   const isAuthor = String(user?._id) === String(post.author?._id);
-  // eslint-disable-next-line react-hooks/purity
   const postAgeMs = post.createdAt ? Date.now() - new Date(post.createdAt).getTime() : 0;
   const canEdit = isAuthor && postAgeMs <= 3 * 60 * 60 * 1000;
 
   const imagesList = post.images?.length > 0 ? post.images : (post.image ? [post.image] : []);
 
+  // ── Stable draft handlers scoped to THIS post only ──────────────────────────
+  const handleDraftChange = useCallback(
+    (e) => onCommentDraftChange(post._id, e.target.value),
+    [post._id, onCommentDraftChange]
+  );
+
+  const handleCommentSubmit = useCallback(async () => {
+    if (busy.comment) return;
+    setBusyAction('comment', true);
+    await onAddComment(post._id);
+    setBusyAction('comment', false);
+  }, [busy.comment, setBusyAction, onAddComment, post._id]);
+
   return (
     <article className="feed-card">
       <div className="post-header">
-        {/* Single full-width user-row: avatar+name on left, buttons on right */}
         <div className="user-row post-header-row">
-          {/* Left: Avatar + name block */}
+          {/* Left: Avatar + name */}
           <div className="user-row-identity">
             <Link to={`/profile/${post.author?.username}`}>
               <img src={post.author?.avatar} alt="avatar" className="avatar" />
@@ -245,7 +298,7 @@ const PostCard = memo(function PostCard({
             </div>
           </div>
 
-          {/* Right: Follow button (non-authors) + 3-dot options */}
+          {/* Right: Follow + 3-dot */}
           <div className="post-header-actions">
             {!isAuthor && (
               <button
@@ -266,16 +319,13 @@ const PostCard = memo(function PostCard({
               </button>
             )}
 
-            {/* 3-Dot Options — anchored INSIDE user-row to avoid nav-bar clipping */}
-            <div className="options-dropdown-wrapper">
+            {/* ── 3-dot options button ─────────────────────────────────── */}
+            {/* ONLY toggles showOptionsMenu. Zero fetches, zero loading. */}
+            <div className="options-dropdown-wrapper" style={{ position: 'relative' }}>
               <button
                 type="button"
                 className="ghost-btn icon-only-btn"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setShowOptionsMenu((prev) => !prev);
-                }}
+                onClick={handleOptionsClick}
                 aria-label="Post options"
                 title="Options"
                 disabled={deleting}
@@ -284,57 +334,88 @@ const PostCard = memo(function PostCard({
               </button>
 
               {showOptionsMenu && (
-                <div className="share-popover options-popover" onClick={(e) => e.stopPropagation()}>
-                  {isAuthor ? (
-                    <>
-                      {canEdit && (
+                <>
+                  {/* Overlay: clicking outside the popover closes it — no window listener */}
+                  <PopoverOverlay onClose={() => setShowOptionsMenu(false)} />
+
+                  <div
+                    className="share-popover options-popover"
+                    style={{ position: 'absolute', zIndex: 100 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {isAuthor ? (
+                      <>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            className="share-popover-option"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowOptionsMenu(false);
+                              setIsEditModalOpen(true);
+                            }}
+                          >
+                            <FiEdit2 /> Edit Post{' '}
+                            <small style={{ opacity: 0.6, fontSize: '0.75rem' }}>(3h window)</small>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="share-popover-option danger-option"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeletePost();
+                          }}
+                        >
+                          <FiTrash2 /> Delete Post
+                        </button>
+                      </>
+                    ) : (
+                      <>
                         <button
                           type="button"
                           className="share-popover-option"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setShowOptionsMenu(false);
-                            setIsEditModalOpen(true);
+                            onFollowToggle(post.author._id);
                           }}
                         >
-                          <FiEdit2 /> Edit Post <small style={{ opacity: 0.6, fontSize: '0.75rem' }}>(3h window)</small>
+                          {isFollowing(post.author._id)
+                            ? <><FiUserCheck /> Unfollow creator</>
+                            : <><FiUserPlus /> Follow creator</>}
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        className="share-popover-option danger-option"
-                        onClick={handleDeletePost}
-                      >
-                        <FiTrash2 /> Delete Post
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        className="share-popover-option"
-                        onClick={() => {
-                          setShowOptionsMenu(false);
-                          onFollowToggle(post.author._id);
-                        }}
-                      >
-                        {isFollowing(post.author._id) ? <><FiUserCheck /> Unfollow creator</> : <><FiUserPlus /> Follow creator</>}
-                      </button>
-                      <button type="button" className="share-popover-option" onClick={handleOpenShareInMessageModal}>
-                        <FiSend /> Share in message
-                      </button>
-                      <button type="button" className="share-popover-option" onClick={handleCopyLink}>
-                        <FiCopy /> Copy share link
-                      </button>
-                    </>
-                  )}
-                </div>
+                        <button
+                          type="button"
+                          className="share-popover-option"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenShareInMessageModal();
+                          }}
+                        >
+                          <FiSend /> Share in message
+                        </button>
+                        <button
+                          type="button"
+                          className="share-popover-option"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyLink(true);
+                          }}
+                        >
+                          <FiCopy /> Copy share link
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Post Images Layout with Responsive Aspect Ratio */}
+      {/* Post Images */}
       {imagesList.length > 0 && (
         <div className={`post-media-container ${imagesList.length > 1 ? `grid-${Math.min(imagesList.length, 4)}` : ''}`}>
           {imagesList.map((imgUrl, idx) => (
@@ -354,7 +435,7 @@ const PostCard = memo(function PostCard({
         </div>
       )}
 
-      {/* Document Attachments with Permission Prompt Modal */}
+      {/* Document Attachments */}
       {post.attachments?.length > 0 && (
         <div className="post-attachments-list">
           {post.attachments.map((doc, idx) => (
@@ -373,7 +454,9 @@ const PostCard = memo(function PostCard({
               </div>
               <div className="doc-meta">
                 <strong className="doc-name">{doc.name}</strong>
-                <span className="doc-details">{doc.fileType?.toUpperCase()} · {formatFileSize(doc.fileSize)}</span>
+                <span className="doc-details">
+                  {doc.fileType?.toUpperCase()} · {formatFileSize(doc.fileSize)}
+                </span>
               </div>
             </button>
           ))}
@@ -382,8 +465,9 @@ const PostCard = memo(function PostCard({
 
       <FormattedCaption text={post.caption} />
 
-      {/* Uniform Action Bar (In-Place Updates Without Page Reload) */}
+      {/* Action Bar */}
       <div className="post-actions">
+        {/* Like */}
         <button
           type="button"
           className="post-action-btn"
@@ -402,6 +486,7 @@ const PostCard = memo(function PostCard({
           <span>{post.likes?.length || 0}</span>
         </button>
 
+        {/* Comment */}
         <button
           type="button"
           className="post-action-btn"
@@ -417,6 +502,7 @@ const PostCard = memo(function PostCard({
           <span>{post.comments?.length || 0}</span>
         </button>
 
+        {/* Bookmark */}
         <button
           type="button"
           className="post-action-btn"
@@ -434,7 +520,9 @@ const PostCard = memo(function PostCard({
           {busy.bookmark ? <LoadingSpinner size={14} /> : <FiBookmark />}
         </button>
 
-        <div className="share-popover-wrapper">
+        {/* ── Share button: ONLY local state on click ─────────────────── */}
+        {/* Opening the popover → zero fetches, zero loading, zero feed refresh. */}
+        <div className="share-popover-wrapper" style={{ position: 'relative' }}>
           <button
             type="button"
             className="post-action-btn"
@@ -446,20 +534,57 @@ const PostCard = memo(function PostCard({
           </button>
 
           {showShareMenu && (
-            <div className="share-popover" onClick={(e) => e.stopPropagation()}>
-              <button type="button" className="share-popover-option" onClick={handleOpenShareInMessageModal}>
-                <FiSend /> Share in message
-              </button>
-              <button type="button" className="share-popover-option" onClick={handleOpenNewWindow}>
-                <FiExternalLink /> Open in new window
-              </button>
-              <button type="button" className="share-popover-option" onClick={handleOpenSameWindow}>
-                <FiMaximize2 /> Open in same window
-              </button>
-              <button type="button" className="share-popover-option" onClick={handleCopyLink}>
-                <FiCopy /> Copy share link
-              </button>
-            </div>
+            <>
+              {/* Overlay: clicking outside the popover closes it — no window listener */}
+              <PopoverOverlay onClose={() => setShowShareMenu(false)} />
+
+              <div
+                className="share-popover"
+                style={{ position: 'absolute', zIndex: 100 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className="share-popover-option"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenShareInMessageModal();
+                  }}
+                >
+                  <FiSend /> Share in message
+                </button>
+                <button
+                  type="button"
+                  className="share-popover-option"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenNewWindow();
+                  }}
+                >
+                  <FiExternalLink /> Open in new window
+                </button>
+                <button
+                  type="button"
+                  className="share-popover-option"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenSameWindow();
+                  }}
+                >
+                  <FiMaximize2 /> Open in same window
+                </button>
+                <button
+                  type="button"
+                  className="share-popover-option"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCopyLink(false);
+                  }}
+                >
+                  <FiCopy /> Copy share link
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -470,32 +595,23 @@ const PostCard = memo(function PostCard({
           <div className="comment-entry">
             <img src={user?.avatar} alt="your avatar" className="comment-avatar" />
             <textarea
-              value={commentDrafts[post._id] || ''}
-              onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post._id]: e.target.value }))}
+              value={commentDraft}
+              onChange={handleDraftChange}
               placeholder="Write a comment..."
               aria-label="Write a comment"
               disabled={busy.comment}
               onKeyDown={async (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  if (busy.comment) return;
-                  setBusyAction('comment', true);
-                  await onAddComment(post._id);
-                  setBusyAction('comment', false);
+                  await handleCommentSubmit();
                 }
               }}
             />
             <button
               type="button"
               className="primary-btn comment-send"
-              onClick={async (e) => {
-                e.preventDefault();
-                if (busy.comment) return;
-                setBusyAction('comment', true);
-                await onAddComment(post._id);
-                setBusyAction('comment', false);
-              }}
-              disabled={busy.comment || !(commentDrafts[post._id] || '').trim()}
+              onClick={handleCommentSubmit}
+              disabled={busy.comment || !commentDraft?.trim()}
               aria-busy={busy.comment}
             >
               {busy.comment ? <LoadingSpinner size={14} /> : 'Send'}
@@ -515,7 +631,9 @@ const PostCard = memo(function PostCard({
                       <span>@{comment.author?.username || 'unknown'}</span>
                     </div>
                     <p>{comment.text}</p>
-                    <small>{comment.createdAt ? formatRelativeTime(comment.createdAt) : 'Just now'}</small>
+                    <small>
+                      {comment.createdAt ? formatRelativeTime(comment.createdAt) : 'Just now'}
+                    </small>
                   </div>
                 </div>
               ))
@@ -537,20 +655,29 @@ const PostCard = memo(function PostCard({
         onPostUpdated={onPostUpdated}
       />
 
-      {/* Document Permission Action Modal */}
+      {/* Document Permission Modal */}
       <DocumentActionModal
         document={selectedDocForAction}
         isOpen={!!selectedDocForAction}
         onClose={() => setSelectedDocForAction(null)}
       />
 
-      {/* Share Post in Message Modal */}
+      {/* ── Share Post in Message Modal ───────────────────────────────── */}
+      {/* Conversations are loaded by a useEffect — NOT by the click handler */}
       {showShareMsgModal && (
         <div className="modal-backdrop" onClick={() => setShowShareMsgModal(false)}>
-          <div className="composer-modal-card" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
+          <div
+            className="composer-modal-card"
+            style={{ maxWidth: '460px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
               <h3>Share Post in Chat</h3>
-              <button type="button" className="modal-close" onClick={() => setShowShareMsgModal(false)}>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setShowShareMsgModal(false)}
+              >
                 <FiX />
               </button>
             </div>
@@ -559,7 +686,11 @@ const PostCard = memo(function PostCard({
                 Select a conversation partner to send this post card to:
               </p>
               <div className="search-results-picker" style={{ maxHeight: '280px' }}>
-                {conversations.length > 0 ? (
+                {loadingConversations ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '24px' }}>
+                    <LoadingSpinner size={18} />
+                  </div>
+                ) : conversations.length > 0 ? (
                   conversations.map((c) => (
                     <div
                       key={c._id}
@@ -567,12 +698,19 @@ const PostCard = memo(function PostCard({
                       onClick={() => handleSendPostInMessage(c.partner?._id)}
                       style={{ cursor: sharingMsg ? 'not-allowed' : 'pointer' }}
                     >
-                      <img src={c.partner?.avatar} alt="avatar" className="avatar" style={{ width: 36, height: 36 }} />
+                      <img
+                        src={c.partner?.avatar}
+                        alt="avatar"
+                        className="avatar"
+                        style={{ width: 36, height: 36 }}
+                      />
                       <div style={{ flex: 1 }}>
                         <strong>{c.partner?.fullname}</strong>
-                        <small style={{ display: 'block', color: 'var(--text-muted)' }}>@{c.partner?.username}</small>
+                        <small style={{ display: 'block', color: 'var(--text-muted)' }}>
+                          @{c.partner?.username}
+                        </small>
                       </div>
-                      <FiSend style={{ color: 'var(--primary)' }} />
+                      {sharingMsg ? <LoadingSpinner size={14} /> : <FiSend style={{ color: 'var(--primary)' }} />}
                     </div>
                   ))
                 ) : (

@@ -43,14 +43,22 @@ export default function Layout() {
         >
           <FiMenu size={24} />
         </button>
-        <div className="brand" style={{ fontSize: '1.4rem', marginLeft: '12px' }}>GOsocial</div>
+        <img
+          src="/home%20fixed-gosocial%20full%20below%20letter.png"
+          alt="GOsocial"
+          style={{ height: '36px', maxWidth: '160px', objectFit: 'contain', display: 'block', marginLeft: '12px' }}
+        />
       </header>
 
       {/* Sidebar Navigation */}
       <aside className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
         <div className="sidebar-brand-box">
           <div>
-            <div className="brand">GOsocial</div>
+            <img
+              src="/home%20fixed-gosocial%20full%20below%20letter.png"
+              alt="GOsocial"
+              style={{ height: '42px', maxWidth: '180px', objectFit: 'contain', display: 'block', marginBottom: '4px' }}
+            />
             <p className="brand-subtitle">Share moments. Build connections.</p>
           </div>
           <button 

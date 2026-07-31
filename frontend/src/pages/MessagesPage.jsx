@@ -26,6 +26,24 @@ import ImageLightboxModal from '../components/ImageLightboxModal';
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
 const IMAGE_EXT_REGEX = /\.(jpg|jpeg|png|gif|webp|avif)($|\?)/i;
 
+const isLongMessage = (text) => {
+  if (!text) return false;
+  const lines = text.split('\n').length;
+  return lines > 20 || text.length > 800;
+};
+
+const getTruncatedMessageText = (text) => {
+  if (!text) return '';
+  const lines = text.split('\n');
+  if (lines.length > 20) {
+    return lines.slice(0, 20).join('\n') + '...';
+  }
+  if (text.length > 800) {
+    return text.substring(0, 800) + '...';
+  }
+  return text;
+};
+
 function renderMessageTextWithLinks(text, onOpenImage) {
   if (!text) return null;
 
@@ -103,6 +121,45 @@ export default function MessagesPage() {
   const [isAttachModalOpen, setIsAttachModalOpen] = useState(false);
   const [selectedDocForAction, setSelectedDocForAction] = useState(null);
   const [expandedImageUrl, setExpandedImageUrl] = useState(null);
+
+  // Responsive mobile preview & single attachment enforcement
+  const [expandedMsgIds, setExpandedMsgIds] = useState(() => new Set());
+  const [isMobileScreen, setIsMobileScreen] = useState(typeof window !== 'undefined' ? window.innerWidth < 640 : false);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobileScreen(window.innerWidth < 640);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Single Attachment setters (guarantees exactly ONE attachment per message)
+  const setSingleImage = useCallback((url) => {
+    setImagesDraft([url]);
+    setAttachmentsDraft([]);
+    setSharedProfileDraft(null);
+    setSharedPostDraft(null);
+  }, []);
+
+  const setSingleDocument = useCallback((doc) => {
+    setAttachmentsDraft([doc]);
+    setImagesDraft([]);
+    setSharedProfileDraft(null);
+    setSharedPostDraft(null);
+  }, []);
+
+  const setSingleSharedProfile = useCallback((p) => {
+    setSharedProfileDraft(p);
+    setImagesDraft([]);
+    setAttachmentsDraft([]);
+    setSharedPostDraft(null);
+  }, []);
+
+  const setSingleSharedPost = useCallback((post) => {
+    setSharedPostDraft(post);
+    setImagesDraft([]);
+    setAttachmentsDraft([]);
+    setSharedProfileDraft(null);
+  }, []);
 
   const messagesEndRef = useRef(null);
   const chatBodyRef = useRef(null);
@@ -434,7 +491,40 @@ export default function MessagesPage() {
 
                       <div className={`msg-bubble ${isMine ? 'mine' : 'theirs'} ${isFailed ? 'failed-bubble' : ''}`}>
                         {/* Text */}
-                        {renderMessageTextWithLinks(msg.text, setExpandedImageUrl)}
+                        {msg.text && (
+                          <div>
+                            {renderMessageTextWithLinks(
+                              (!isLongMessage(msg.text) || expandedMsgIds.has(msg._id))
+                                ? msg.text
+                                : getTruncatedMessageText(msg.text),
+                              setExpandedImageUrl
+                            )}
+
+                            {isLongMessage(msg.text) && !expandedMsgIds.has(msg._id) && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setExpandedMsgIds((prev) => new Set(prev).add(msg._id));
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: isMine ? '#ffffff' : 'var(--primary, #6366f1)',
+                                  fontSize: '0.8rem',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  padding: '4px 0 0 0',
+                                  display: 'block',
+                                  textDecoration: 'underline',
+                                }}
+                              >
+                                See more
+                              </button>
+                            )}
+                          </div>
+                        )}
 
                         {/* Images Attachment */}
                         {msg.images?.length > 0 && (
@@ -462,8 +552,8 @@ export default function MessagesPage() {
                                 className="document-attachment-card msg-doc-card"
                                 onClick={() => setSelectedDocForAction(doc)}
                               >
-                                <FiFileText size={20} />
-                                <div className="doc-meta">
+                                <FiFileText size={20} style={{ flexShrink: 0 }} />
+                                <div className="doc-meta" style={{ minWidth: 0 }}>
                                   <strong className="doc-name">{doc.name}</strong>
                                   <small>{doc.fileType?.toUpperCase()}</small>
                                 </div>
@@ -474,30 +564,132 @@ export default function MessagesPage() {
 
                         {/* Shared Profile Card */}
                         {msg.sharedProfile && (
-                          <Link to={`/profile/${msg.sharedProfile.username}`} className="msg-shared-profile-card">
-                            <img src={msg.sharedProfile.avatar} alt="avatar" className="avatar" />
-                            <div className="profile-card-info">
-                              <strong>{msg.sharedProfile.fullname}</strong>
-                              <span>@{msg.sharedProfile.username}</span>
-                              {msg.sharedProfile.bio && <small>{msg.sharedProfile.bio.substring(0, 35)}...</small>}
+                          <div style={{ marginTop: '6px', marginBottom: '6px', width: '100%', minWidth: 0 }}>
+                            <div style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.5px' }}>
+                              Profile
                             </div>
-                            <FiExternalLink size={16} />
-                          </Link>
+                            <Link
+                              to={`/profile/${msg.sharedProfile.username}`}
+                              className="msg-shared-profile-card"
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '8px 12px',
+                                borderRadius: '12px',
+                                background: 'rgba(255, 255, 255, 0.08)',
+                                border: '1px solid rgba(255, 255, 255, 0.12)',
+                                textDecoration: 'none',
+                                color: 'inherit',
+                                maxWidth: '100%',
+                                boxSizing: 'border-box',
+                                minWidth: 0,
+                              }}
+                            >
+                              <img
+                                src={msg.sharedProfile.avatar || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80'}
+                                alt="avatar"
+                                style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                              />
+                              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                                <strong style={{ display: 'block', fontSize: '0.9rem', lineHeight: '1.2', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {msg.sharedProfile.fullname}
+                                </strong>
+                              </div>
+                              <FiExternalLink size={16} style={{ flexShrink: 0, opacity: 0.8 }} />
+                            </Link>
+                            {msg.sharedProfile.bio && (
+                              <p
+                                style={{
+                                  margin: '6px 0 0 0',
+                                  fontSize: '0.82rem',
+                                  lineHeight: '1.4',
+                                  opacity: 0.9,
+                                  wordBreak: 'break-word',
+                                  overflowWrap: 'anywhere',
+                                  whiteSpace: 'pre-wrap',
+                                }}
+                              >
+                                "{msg.sharedProfile.bio}"
+                              </p>
+                            )}
+                          </div>
                         )}
 
-                        {/* Shared Post Card */}
+                        {/* Shared Post Card Layout */}
                         {msg.sharedPost && (
-                          <Link to={`/post/${msg.sharedPost._id}`} className="msg-shared-post-card">
-                            <div className="shared-post-header">
-                              <img src={msg.sharedPost.author?.avatar} alt="avatar" className="comment-avatar" />
-                              <strong>{msg.sharedPost.author?.fullname || 'Creator'}</strong>
+                          <div style={{ marginTop: '6px', marginBottom: '6px', width: '100%', minWidth: 0 }}>
+                            <div style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.5px' }}>
+                              Post
                             </div>
-                            {msg.sharedPost.image && (
-                              <img src={msg.sharedPost.image} alt="post media" className="shared-post-thumb" />
-                            )}
-                            <p>{msg.sharedPost.caption?.substring(0, 50)}...</p>
-                            <FiExternalLink size={14} className="link-icon" />
-                          </Link>
+                            <Link
+                              to={`/post/${msg.sharedPost._id || msg.sharedPost}`}
+                              className="msg-shared-post-card"
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px',
+                                padding: '10px 12px',
+                                borderRadius: '12px',
+                                background: 'rgba(255, 255, 255, 0.08)',
+                                border: '1px solid rgba(255, 255, 255, 0.12)',
+                                textDecoration: 'none',
+                                color: 'inherit',
+                                maxWidth: '100%',
+                                boxSizing: 'border-box',
+                                minWidth: 0,
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {/* Top: Author Avatar + Name */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                                <img
+                                  src={msg.sharedPost.author?.avatar || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80'}
+                                  alt="avatar"
+                                  style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                                />
+                                <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                                  <strong style={{ display: 'block', fontSize: '0.86rem', lineHeight: '1.2', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {msg.sharedPost.author?.fullname || 'Creator'}
+                                  </strong>
+                                </div>
+                                <FiExternalLink size={14} style={{ flexShrink: 0, opacity: 0.8 }} />
+                              </div>
+
+                              {/* Middle: Post Image or Thumbnails */}
+                              {(msg.sharedPost.image || msg.sharedPost.images?.[0]) && (
+                                <img
+                                  src={msg.sharedPost.image || msg.sharedPost.images?.[0]}
+                                  alt="post media"
+                                  style={{
+                                    width: '100%',
+                                    height: 'auto',
+                                    maxHeight: '200px',
+                                    objectFit: 'cover',
+                                    borderRadius: '8px',
+                                    display: 'block',
+                                  }}
+                                />
+                              )}
+
+                              {/* Bottom: Post Caption Paragraph with Responsive Line Breaking */}
+                              {msg.sharedPost.caption && (
+                                <p
+                                  style={{
+                                    margin: 0,
+                                    fontSize: '0.84rem',
+                                    lineHeight: '1.4',
+                                    wordBreak: 'break-word',
+                                    overflowWrap: 'anywhere',
+                                    whiteSpace: 'pre-wrap',
+                                    maxWidth: '100%',
+                                  }}
+                                >
+                                  {msg.sharedPost.caption}
+                                </p>
+                              )}
+                            </Link>
+                          </div>
                         )}
 
                         <div className="msg-time-row">
@@ -614,10 +806,10 @@ export default function MessagesPage() {
       <MessageAttachmentModal
         isOpen={isAttachModalOpen}
         onClose={() => setIsAttachModalOpen(false)}
-        onAddImage={(url) => setImagesDraft((prev) => [...prev, url])}
-        onAddDocument={(doc) => setAttachmentsDraft((prev) => [...prev, doc])}
-        onShareProfile={(p) => setSharedProfileDraft(p)}
-        onSharePost={(post) => setSharedPostDraft(post)}
+        onAddImage={setSingleImage}
+        onAddDocument={setSingleDocument}
+        onShareProfile={setSingleSharedProfile}
+        onSharePost={setSingleSharedPost}
         onAddHashtag={(tag) => setTextDraft((prev) => (prev ? `${prev} ${tag}` : tag))}
       />
 
