@@ -1,6 +1,6 @@
-# NovaSocial
+# GOSocial
 
-NovaSocial is a polished full-stack social media platform built with React, Vite, Express, MongoDB, JWT, and modern UI patterns. It includes authentication, a home feed, profile management, search, follows, comments, bookmarking, and hidden admin routes.
+GOSocial is a polished full-stack social media platform built with React, Vite, Express, MongoDB, JWT, and modern UI patterns. It includes authentication, a home feed, profile management, search, follows, comments, bookmarking, and hidden admin routes.
 
 ## Features
 - Authentication with JWT and secure cookies
